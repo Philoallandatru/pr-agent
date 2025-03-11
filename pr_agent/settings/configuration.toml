@@ -63,7 +63,7 @@ auto_approve_for_no_suggestions=false # If true, the PR will be auto-approved if
 # extended thinking for Claude reasoning models
 enable_claude_extended_thinking = false # Set to true to enable extended thinking feature
 extended_thinking_budget_tokens = 2048
-extended_thinking_max_output_tokens = 2048
+extended_thinking_max_output_tokens = 4096
 
 
 [pr_reviewer] # /review #
