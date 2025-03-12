@@ -104,7 +104,7 @@ publish_description_as_comment_persistent=true
 ## changes walkthrough section
 enable_semantic_files_types=true
 collapsible_file_list='adaptive' # true, false, 'adaptive'
-collapsible_file_list_threshold=8
+collapsible_file_list_threshold=6
 inline_file_summary=false # false, true, 'table'
 # markers
 use_description_markers=false
@@ -146,6 +146,7 @@ max_number_of_calls = 3
 parallel_calls = true
 
 final_clip_factor = 0.8
+decouple_hunks = false
 # self-review checkbox
 demand_code_suggestions_self_review=false # add a checkbox for the author to self-review the code suggestions
 code_suggestions_self_review_text= "**Author self-review**: I have reviewed the PR code suggestions, and addressed the relevant ones."
