@@ -212,6 +212,12 @@ num_retrieved_snippets=5
 
 [pr_config] # /config #
 
+[pr_help_docs]
+repo_url = "" #If not overwritten, will use the repo from where the context came from (issue or PR)
+docs_path = "docs"
+exclude_root_readme = false
+supported_doc_exts = [".md", ".mdx", ".rst"]
+
 [github]
 # The type of deployment to create. Valid values are 'app' or 'user'.
 deployment_type = "user"
