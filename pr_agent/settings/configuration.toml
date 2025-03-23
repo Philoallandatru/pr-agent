@@ -218,6 +218,7 @@ repo_default_branch = "main"
 docs_path = "docs"
 exclude_root_readme = false
 supported_doc_exts = [".md", ".mdx", ".rst"]
+enable_help_text=false
 
 [github]
 # The type of deployment to create. Valid values are 'app' or 'user'.
