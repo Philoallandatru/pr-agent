@@ -15,6 +15,8 @@ publish_output=true
 publish_output_progress=true
 verbosity_level=0 # 0,1,2
 use_extra_bad_extensions=false
+# Log
+log_level="DEBUG"
 # Configurations
 use_wiki_settings_file=true
 use_repo_settings_file=true
