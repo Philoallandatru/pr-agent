@@ -6,9 +6,9 @@
 
 [config]
 # models
-model_reasoning="o4-mini"
-model="gpt-4.1"
-fallback_models=["o4-mini"]
+model="o4-mini"
+fallback_models=["gpt-4.1"]
+#model_reasoning="o4-mini" # dedictated reasoning model for self-reflection
 #model_weak="gpt-4o" # optional, a weaker model to use for some easier tasks
 # CLI
 git_provider="github"
@@ -36,8 +36,8 @@ model_token_count_estimate_factor=0.3 # factor to increase the token count estim
 # patch extension logic
 patch_extension_skip_types =[".md",".txt"]
 allow_dynamic_context=true
-max_extra_lines_before_dynamic_context = 8 # will try to include up to 10 extra lines before the hunk in the patch, until we reach an enclosing function or class
-patch_extra_lines_before = 3 # Number of extra lines (+3 default ones) to include before each hunk in the patch
+max_extra_lines_before_dynamic_context = 10 # will try to include up to 10 extra lines before the hunk in the patch, until we reach an enclosing function or class
+patch_extra_lines_before = 5 # Number of extra lines (+3 default ones) to include before each hunk in the patch
 patch_extra_lines_after = 1 # Number of extra lines (+3 default ones) to include after each hunk in the patch
 secret_provider=""
 cli_mode=false
