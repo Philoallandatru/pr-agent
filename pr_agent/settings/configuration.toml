@@ -6,8 +6,9 @@
 
 [config]
 # models
-model="o4-mini"
-fallback_models=["gpt-4.1"]
+model_reasoning="o4-mini"
+model="gpt-4.1"
+fallback_models=["o4-mini"]
 #model_weak="gpt-4o" # optional, a weaker model to use for some easier tasks
 # CLI
 git_provider="github"
@@ -123,7 +124,7 @@ use_conversation_history=true
 
 
 [pr_code_suggestions] # /improve #
-max_context_tokens=16000
+max_context_tokens=24000
 #
 commitable_code_suggestions = false
 dual_publishing_score_threshold=-1 # -1 to disable, [0-10] to set the threshold (>=) for publishing a code suggestion both in a table and as commitable
@@ -144,7 +145,7 @@ new_score_mechanism_th_high=9
 new_score_mechanism_th_medium=7
 # params for '/improve --extended' mode
 auto_extended_mode=true
-num_code_suggestions_per_chunk=3
+num_code_suggestions_per_chunk=4
 max_number_of_calls = 3
 parallel_calls = true
 
