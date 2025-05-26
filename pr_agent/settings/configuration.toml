@@ -285,7 +285,7 @@ push_commands = [
 url = "https://gitea.com"
 handle_push_trigger = false
 pr_commands = [
-    "/describe --pr_description.final_update_message=false",
+    "/describe",
     "/review",
     "/improve",
 ]
