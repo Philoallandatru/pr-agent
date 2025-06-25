@@ -56,6 +56,7 @@ ignore_pr_source_branches = [] # a list of regular expressions of source branche
 ignore_pr_labels = [] # labels to ignore from PR agent when an PR is created
 ignore_pr_authors = [] # authors to ignore from PR agent when an PR is created
 ignore_repositories = [] # a list of regular expressions of repository full names (e.g. "org/repo") to ignore from PR agent processing
+ignore_language_framework = [] # a list of code-generation languages or frameworks (e.g. 'protobuf', 'go_gen') whose auto-generated source files will be excluded from analysis
 #
 is_auto_command = false # will be auto-set to true if the command is triggered by an automation
 enable_ai_metadata = false # will enable adding ai metadata
