@@ -152,7 +152,8 @@ new_score_mechanism_th_high=9
 new_score_mechanism_th_medium=7
 # params for '/improve --extended' mode
 auto_extended_mode=true
-num_code_suggestions_per_chunk=4
+num_code_suggestions_per_chunk=3
+num_best_practice_suggestions=1 # 💎
 max_number_of_calls = 3
 parallel_calls = true
 
