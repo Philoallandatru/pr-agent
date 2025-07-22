@@ -106,7 +106,7 @@ extra_instructions = ""
 enable_pr_type=true
 final_update_message = true
 enable_help_text=false
-enable_help_comment=true
+enable_help_comment=false
 enable_pr_diagram=true # adds a section with a diagram of the PR changes
 # describe as comment
 publish_description_as_comment=false
@@ -152,7 +152,8 @@ new_score_mechanism_th_high=9
 new_score_mechanism_th_medium=7
 # params for '/improve --extended' mode
 auto_extended_mode=true
-num_code_suggestions_per_chunk=4
+num_code_suggestions_per_chunk=3
+num_best_practice_suggestions=1 # 💎
 max_number_of_calls = 3
 parallel_calls = true
 
