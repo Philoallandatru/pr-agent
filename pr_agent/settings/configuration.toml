@@ -284,6 +284,8 @@ push_commands = [
     "/describe",
     "/review",
 ]
+# Configure SSL validation for GitLab. Can be either set to the path of a custom CA or disabled entirely.
+# ssl_verify = true
 
 [gitea_app]
 url = "https://gitea.com"
@@ -334,6 +336,7 @@ enable_callbacks = false
 success_callback = []
 failure_callback = []
 service_callback = []
+# model_id = "" # Optional: Custom inference profile ID for Amazon Bedrock
 
 [pr_similar_issue]
 skip_comments = false
