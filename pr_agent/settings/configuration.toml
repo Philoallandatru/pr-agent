@@ -373,6 +373,8 @@ extra_instructions = "" # public - extra instructions to the auto best practices
 content = ""
 max_patterns = 5 # max number of patterns to be detected
 
+[azure_devops]
+default_comment_status = "closed"
 
 [azure_devops_server]
 pr_commands = [
