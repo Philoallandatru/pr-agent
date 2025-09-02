@@ -50,7 +50,7 @@ duplicate_prompt_examples = false
 seed=-1 # set positive value to fix the seed (and ensure temperature=0)
 temperature=0.2
 # bring repo metadata 💎
-add_repo_metadata=false # if true, will try to add metadata from files like 'AGENTS.MD', 'CLAUDE.MD', 'QODO.MD' etc.
+add_repo_metadata=false # if true, will try to add metadata from files like 'AGENTS.MD', 'CLAUDE.MD', 'QODO.MD'
 add_repo_metadata_file_list =["AGENTS.MD", "CLAUDE.MD", "QODO.MD"]
 # ignore logic
 ignore_pr_title = ["^\\[Auto\\]", "^Auto"] # a list of regular expressions to match against the PR title to ignore the PR agent
