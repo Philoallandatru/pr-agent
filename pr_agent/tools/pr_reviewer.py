@@ -12,6 +12,8 @@ from pr_agent.algo.ai_handlers.litellm_ai_handler import LiteLLMAIHandler
 from pr_agent.algo.pr_processing import (add_ai_metadata_to_diff_files,
                                          get_pr_diff,
                                          retry_with_fallback_models)
+from pr_agent.algo.repository_rag import get_repository_context_bundle
+from pr_agent.algo.testcase_alignment import build_testcase_alignment_bundle
 from pr_agent.algo.token_handler import TokenHandler
 from pr_agent.algo.utils import (ModelType, PRReviewHeader,
                                  convert_to_markdown_v2, github_action_output,
@@ -100,6 +102,28 @@ class PRReviewer:
             'duplicate_prompt_examples': get_settings().config.get('duplicate_prompt_examples', False),
             "date": datetime.datetime.now().strftime('%Y-%m-%d'),
         }
+
+        self.repository_context_bundle = get_repository_context_bundle(
+            self.git_provider,
+            self.pr_url,
+            self.git_provider.get_diff_files(),
+            title=self.git_provider.pr.title,
+            description=self.pr_description,
+        )
+        self.repository_context_markdown = self.repository_context_bundle.markdown
+        self.vars["repo_context"] = self.repository_context_bundle.prompt_items
+        self.vars["repo_context_count"] = len(self.repository_context_bundle.prompt_items)
+
+        self.testcase_alignment_bundle = build_testcase_alignment_bundle(
+            title=self.git_provider.pr.title,
+            description=self.pr_description,
+            branch=self.git_provider.get_pr_branch(),
+            diff_files=self.git_provider.get_diff_files(),
+            repo_context_prompt_items=self.repository_context_bundle.prompt_items,
+        )
+        self.vars["testcase_context"] = self.testcase_alignment_bundle.prompt_items
+        self.vars["testcase_context_count"] = len(self.testcase_alignment_bundle.prompt_items)
+        self.testcase_alignment_results = self.testcase_alignment_bundle.results
 
         self.token_handler = TokenHandler(
             self.git_provider.pr,
@@ -235,6 +259,7 @@ class PRReviewer:
         last_key = 'security_concerns'
         data = load_yaml(self.prediction.strip(),
                          keys_fix_yaml=["ticket_compliance_check", "estimated_effort_to_review_[1-5]:", "security_concerns:", "key_issues_to_review:",
+                                        "testcase_alignment_check",
                                         "relevant_file:", "relevant_line:", "suggestion:"],
                          first_key=first_key, last_key=last_key)
         github_action_output(data, 'review')
@@ -248,6 +273,9 @@ class PRReviewer:
             key_issues_to_review = data['review'].pop('key_issues_to_review')
             data['review']['key_issues_to_review'] = key_issues_to_review
 
+        if self.testcase_alignment_results:
+            data["review"]["testcase_alignment_check"] = self.testcase_alignment_results
+
         incremental_review_markdown_text = None
         # Add incremental review section
         if self.incremental.is_incremental:
@@ -259,6 +287,9 @@ class PRReviewer:
                                             incremental_review_markdown_text,
                                                git_provider=self.git_provider,
                                                files=self.git_provider.get_diff_files())
+
+        if self.repository_context_markdown:
+            markdown_text += self.repository_context_markdown
 
         # Add help text if gfm_markdown is supported
         if self.git_provider.is_supported("gfm_markdown") and get_settings().pr_reviewer.enable_help_text:

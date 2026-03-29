@@ -139,27 +139,28 @@ def convert_to_markdown_v2(output_data: dict,
     """
 
     emojis = {
-        "Can be split": "🔀",
-        "Key issues to review": "⚡",
-        "Recommended focus areas for review": "⚡",
-        "Score": "🏅",
-        "Relevant tests": "🧪",
-        "Focused PR": "✨",
-        "Relevant ticket": "🎫",
-        "Security concerns": "🔒",
-        "Todo sections": "📝",
-        "Insights from user's answers": "📝",
-        "Code feedback": "🤖",
-        "Estimated effort to review [1-5]": "⏱️",
-        "Contribution time cost estimate": "⏳",
-        "Ticket compliance check": "🎫",
+        "Can be split": "",
+        "Key issues to review": "",
+        "Recommended focus areas for review": "",
+        "Score": "",
+        "Relevant tests": "",
+        "Focused PR": "",
+        "Relevant ticket": "",
+        "Security concerns": "",
+        "Todo sections": "",
+        "Insights from user's answers": "",
+        "Code feedback": "",
+        "Estimated effort to review [1-5]": "",
+        "Contribution time cost estimate": "",
+        "Ticket compliance check": "",
+        "Testcase alignment check": "",
     }
     markdown_text = ""
     if not incremental_review:
-        markdown_text += f"{PRReviewHeader.REGULAR.value} 🔍\n\n"
+        markdown_text += f"{PRReviewHeader.REGULAR.value}\n\n"
     else:
-        markdown_text += f"{PRReviewHeader.INCREMENTAL.value} 🔍\n\n"
-        markdown_text += f"⏮️ Review for commits since previous PR-Agent review {incremental_review}.\n\n"
+        markdown_text += f"{PRReviewHeader.INCREMENTAL.value}\n\n"
+        markdown_text += f"Review for commits since previous PR-Agent review {incremental_review}.\n\n"
     if not output_data or not output_data.get('review', {}):
         return ""
 
@@ -186,8 +187,8 @@ def convert_to_markdown_v2(output_data: dict,
                     value_int = int(value.split(',')[0])
                 except ValueError:
                     continue
-            blue_bars = '🔵' * value_int
-            white_bars = '⚪' * (5 - value_int)
+            blue_bars = "|" * value_int
+            white_bars = "." * (5 - value_int)
             value = f"{value_int} {blue_bars}{white_bars}"
             if gfm_supported:
                 markdown_text += f"<tr><td>"
@@ -211,6 +212,8 @@ def convert_to_markdown_v2(output_data: dict,
                     markdown_text += f"### {emoji} PR contains tests\n\n"
         elif 'ticket compliance check' in key_nice.lower():
             markdown_text = ticket_markdown_logic(emoji, markdown_text, value, gfm_supported)
+        elif 'testcase alignment check' in key_nice.lower():
+            markdown_text = testcase_alignment_markdown_logic(emoji, markdown_text, value, gfm_supported)
         elif 'contribution time cost estimate' in key_nice.lower():
             if gfm_supported:
                 markdown_text += f"<tr><td>{emoji}&nbsp;<strong>Contribution time estimate</strong> (best, average, worst case): "
@@ -240,7 +243,7 @@ def convert_to_markdown_v2(output_data: dict,
             if gfm_supported:
                 markdown_text += "<tr><td>"
                 if is_value_no(value):
-                    markdown_text += f"✅&nbsp;<strong>No TODO sections</strong>"
+                    markdown_text += f"{emoji}&nbsp;<strong>No TODO sections</strong>"
                 else:
                     markdown_todo_items = format_todo_items(value, git_provider, gfm_supported)
                     markdown_text += f"{emoji}&nbsp;<strong>TODO sections</strong>\n<br><br>\n"
@@ -248,7 +251,7 @@ def convert_to_markdown_v2(output_data: dict,
                 markdown_text += "</td></tr>\n"
             else:
                 if is_value_no(value):
-                    markdown_text += f"### ✅ No TODO sections\n\n"
+                    markdown_text += f"### {emoji} No TODO sections\n\n"
                 else:
                     markdown_todo_items = format_todo_items(value, git_provider, gfm_supported)
                     markdown_text += f"### {emoji} TODO sections\n\n"
@@ -427,24 +430,24 @@ def ticket_markdown_logic(emoji, markdown_text, value, gfm_supported) -> str:
         if all_compliance_levels:
             if all(level == 'Fully compliant' for level in all_compliance_levels):
                 compliance_level = 'Fully compliant'
-                compliance_emoji = '✅'
+                compliance_emoji = "[OK]"
             elif all(level == 'PR Code Verified' for level in all_compliance_levels):
                 compliance_level = 'PR Code Verified'
-                compliance_emoji = '✅'
+                compliance_emoji = "[OK]"
             elif any(level == 'Not compliant' for level in all_compliance_levels):
                 # If there's a mix of compliant and non-compliant tickets
                 if any(level in ['Fully compliant', 'PR Code Verified'] for level in all_compliance_levels):
                     compliance_level = 'Partially compliant'
-                    compliance_emoji = '🔶'
+                    compliance_emoji = "[PARTIAL]"
                 else:
                     compliance_level = 'Not compliant'
-                    compliance_emoji = '❌'
+                    compliance_emoji = "[NO]"
             elif any(level == 'Partially compliant' for level in all_compliance_levels):
                 compliance_level = 'Partially compliant'
-                compliance_emoji = '🔶'
+                compliance_emoji = "[PARTIAL]"
             else:
                 compliance_level = 'PR Code Verified'
-                compliance_emoji = '✅'
+                compliance_emoji = "[OK]"
 
             # Set extra statistics outside the ticket loop
             get_settings().set('config.extra_statistics', {'compliance_level': compliance_level})
@@ -459,6 +462,67 @@ def ticket_markdown_logic(emoji, markdown_text, value, gfm_supported) -> str:
             markdown_text += f"### {emoji} Ticket compliance analysis {compliance_emoji}\n\n"
             markdown_text += ticket_compliance_str + "\n\n"
 
+    return markdown_text
+
+
+def testcase_alignment_markdown_logic(emoji, markdown_text, value, gfm_supported) -> str:
+    if not isinstance(value, list) or not value:
+        return markdown_text
+
+    if gfm_supported:
+        markdown_text += "<tr><td>\n"
+        markdown_text += f"**{emoji} TestCase Alignment**\n\n"
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            case_id = str(item.get("case_id", "")).strip()
+            case_name = str(item.get("case_name", "")).strip()
+            score = item.get("alignment_score", 0)
+            covered_steps = item.get("covered_steps", []) or []
+            missing_steps = item.get("missing_steps", []) or []
+            uncertain_steps = item.get("uncertain_steps", []) or []
+            markdown_text += f"<details><summary><strong>{case_id} - {case_name}</strong> (score: {score})</summary>\n\n"
+            if covered_steps:
+                markdown_text += "Covered steps:\n"
+                for step in covered_steps:
+                    markdown_text += f"- {step}\n"
+                markdown_text += "\n"
+            if missing_steps:
+                markdown_text += "Missing steps:\n"
+                for step in missing_steps:
+                    markdown_text += f"- {step}\n"
+                markdown_text += "\n"
+            if uncertain_steps:
+                markdown_text += "Uncertain steps:\n"
+                for step in uncertain_steps:
+                    markdown_text += f"- {step}\n"
+                markdown_text += "\n"
+            evidence_refs = item.get("evidence_refs", []) or []
+            if evidence_refs:
+                markdown_text += "Evidence refs:\n"
+                for evidence in evidence_refs[:5]:
+                    if not isinstance(evidence, dict):
+                        continue
+                    path = evidence.get("path", "")
+                    source_type = evidence.get("source_type", "")
+                    start_line = evidence.get("start_line", 0)
+                    end_line = evidence.get("end_line", 0)
+                    snippet = str(evidence.get("snippet", "")).strip()
+                    markdown_text += f"- `{path}` ({source_type}, lines {start_line}-{end_line}): {snippet}\n"
+                markdown_text += "\n"
+            markdown_text += "</details>\n\n"
+        markdown_text += "</td></tr>\n"
+        return markdown_text
+
+    markdown_text += f"### {emoji} TestCase Alignment\n\n"
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        case_id = str(item.get("case_id", "")).strip()
+        case_name = str(item.get("case_name", "")).strip()
+        score = item.get("alignment_score", 0)
+        markdown_text += f"- {case_id} - {case_name}: {score}\n"
+    markdown_text += "\n"
     return markdown_text
 
 
@@ -1275,8 +1339,34 @@ def show_relevant_configurations(relevant_section: str) -> str:
         skip_keys.extend(extra_skip_keys)
 
     markdown_text = ""
-    markdown_text += "\n<hr>\n<details> <summary><strong>🛠️ Relevant configurations:</strong></summary> \n\n"
+    markdown_text += "\n<hr>\n<details> <summary><strong>馃洜锔?Relevant configurations:</strong></summary> \n\n"
     markdown_text +="<br>These are the relevant [configurations](https://github.com/Codium-ai/pr-agent/blob/main/pr_agent/settings/configuration.toml) for this tool:\n\n"
+    markdown_text += f"**[config**]\n```yaml\n\n"
+    for key, value in get_settings().config.items():
+        if key in skip_keys:
+            continue
+        markdown_text += f"{key}: {value}\n"
+    markdown_text += "\n```\n"
+    markdown_text += f"\n**[{relevant_section}]**\n```yaml\n\n"
+    for key, value in get_settings().get(relevant_section, {}).items():
+        if key in skip_keys:
+            continue
+        markdown_text += f"{key}: {value}\n"
+    markdown_text += "\n```"
+    markdown_text += "\n</details>\n"
+    return markdown_text
+
+
+def show_relevant_configurations(relevant_section: str) -> str:
+    skip_keys = ['ai_disclaimer', 'ai_disclaimer_title', 'ANALYTICS_FOLDER', 'secret_provider', "skip_keys", "app_id", "redirect",
+                      'trial_prefix_message', 'no_eligible_message', 'identity_provider', 'ALLOWED_REPOS','APP_NAME']
+    extra_skip_keys = get_settings().config.get('config.skip_keys', [])
+    if extra_skip_keys:
+        skip_keys.extend(extra_skip_keys)
+
+    markdown_text = ""
+    markdown_text += "\n<hr>\n<details> <summary><strong>Relevant configurations:</strong></summary> \n\n"
+    markdown_text += "<br>These are the relevant [configurations](https://github.com/Codium-ai/pr-agent/blob/main/pr_agent/settings/configuration.toml) for this tool:\n\n"
     markdown_text += f"**[config**]\n```yaml\n\n"
     for key, value in get_settings().config.items():
         if key in skip_keys:
@@ -1375,7 +1465,7 @@ def process_description(description_full: str) -> Tuple[str, List]:
                 try:
                     if isinstance(file_data, tuple):
                         file_data = file_data[0]
-                    pattern = r'<details>\s*<summary><strong>(.*?)</strong>\s*<dd><code>(.*?)</code>.*?</summary>\s*<hr>\s*(.*?)\s*(?:<li>|•)(.*?)</details>'
+                    pattern = r'<details>\s*<summary><strong>(.*?)</strong>\s*<dd><code>(.*?)</code>.*?</summary>\s*<hr>\s*(.*?)\s*(?:<li>|鈥?(.*?)</details>'
                     res = re.search(pattern, file_data, re.DOTALL)
                     if not res or res.lastindex != 4:
                         pattern_back = r'<details>\s*<summary><strong>(.*?)</strong><dd><code>(.*?)</code>.*?</summary>\s*<hr>\s*(.*?)\n\n\s*(.*?)</details>'
@@ -1505,3 +1595,5 @@ def format_todo_items(value: list[TodoItem] | TodoItem, git_provider, gfm_suppor
         else:
             markdown_text += f"- {format_todo_item(value, git_provider, gfm_supported)}\n"
     return markdown_text
+
+

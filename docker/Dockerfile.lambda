@@ -4,9 +4,14 @@ RUN dnf update -y && \
     dnf install -y gcc python3-devel git && \
     dnf clean all
 
+ENV TIKTOKEN_CACHE_DIR=/opt/pr-agent/tiktoken_cache
 ADD pyproject.toml requirements.txt ./
+ADD docker/warm_tiktoken_cache.py /tmp/warm_tiktoken_cache.py
 RUN pip install --no-cache-dir . && rm pyproject.toml
 RUN pip install --no-cache-dir mangum==0.17.0
+RUN python /tmp/warm_tiktoken_cache.py --cache-dir ${TIKTOKEN_CACHE_DIR} --encodings o200k_base cl100k_base && \
+    rm /tmp/warm_tiktoken_cache.py && \
+    chmod -R a-w ${TIKTOKEN_CACHE_DIR}
 COPY pr_agent/ ${LAMBDA_TASK_ROOT}/pr_agent/
 
 FROM base AS github_lambda

@@ -3,10 +3,15 @@ FROM python:3.12.10-slim AS base
 RUN apt update && apt install --no-install-recommends -y git curl && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+ENV TIKTOKEN_CACHE_DIR=/opt/pr-agent/tiktoken_cache
 ADD pyproject.toml .
 ADD requirements.txt .
 ADD docs docs
+ADD docker/warm_tiktoken_cache.py /tmp/warm_tiktoken_cache.py
 RUN pip install --no-cache-dir . && rm pyproject.toml requirements.txt
+RUN python /tmp/warm_tiktoken_cache.py --cache-dir ${TIKTOKEN_CACHE_DIR} --encodings o200k_base cl100k_base && \
+    rm /tmp/warm_tiktoken_cache.py && \
+    chmod -R a-w ${TIKTOKEN_CACHE_DIR}
 ENV PYTHONPATH=/app
 
 FROM base AS github_app

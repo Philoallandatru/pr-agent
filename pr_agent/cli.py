@@ -44,6 +44,8 @@ def set_parser():
     
     - help_docs - Ask a question, from either an issue or PR context, on a given repo (current context or a different one)
 
+    - sync_testcases [--full] - Sync testcase pages from Confluence into local cache for offline review alignment
+
 
     Configuration:
     To edit any configuration parameter from 'configuration.toml', just add -config_path=<value>.

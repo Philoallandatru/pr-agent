@@ -215,6 +215,46 @@ exclude_root_readme = false
 supported_doc_exts = [".md", ".mdx", ".rst"]
 enable_help_text=false
 
+[pr_rag]
+enabled = false
+backend = "bm25" # options: "bm25"
+force_refresh = false
+cache_dir = "" # empty means a temp directory under the system cache location
+max_retrieved_chunks = 7
+max_context_chars = 12000
+max_file_chars = 120000
+code_chunk_lines = 80
+doc_chunk_lines = 60
+chunk_overlap_lines = 12
+top_k_code = 4
+top_k_docs = 3
+doc_paths = ["docs", "prd", "spec"]
+
+[tokenizer]
+offline_only = false
+cache_dir = "" # optional explicit cache dir. Empty uses environment or tiktoken default.
+required_encodings = ["o200k_base", "cl100k_base"]
+fallback_to_estimation = true
+
+[testcase_alignment]
+enabled = false
+case_id_patterns = ["\\b(?:TC|CASE|TEST)[-_]?\\d+\\b"]
+max_cases_per_review = 6
+max_steps_per_case = 20
+min_alignment_confidence = 0.55
+
+[confluence_sync]
+enabled = false
+base_url = ""
+space_keys = []
+page_cql = ""
+cache_dir = ""
+full_sync_interval_minutes = 720
+incremental_since_last_sync = true
+verify_ssl = true
+request_timeout_seconds = 30
+page_limit = 50
+
 [github]
 # The type of deployment to create. Valid values are 'app' or 'user'.
 deployment_type = "user"

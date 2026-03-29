@@ -1,5 +1,7 @@
 ## Run as a Bitbucket Pipeline
 
+> For Bitbucket Server/Data Center in intranet, and for BM25 RAG setup, see: [Bitbucket Server Offline + RAG](./bitbucket_server_offline_rag.md)
+
 You can use the Bitbucket Pipeline system to run PR-Agent on every pull request open or update.
 
 1. Add the following file in your repository bitbucket-pipelines.yml

@@ -45,6 +45,12 @@ __new hunk__
 - When quoting variables, names or file paths from the code, use backticks (`) instead of single quote (').
 - Note that you only see changed code segments (diff hunks in a PR), not the entire codebase. Avoid suggestions that might duplicate existing functionality or questioning code elements (like variables declarations or import statements) that may be defined elsewhere in the codebase.
 - Also note that if the code ends at an opening brace or statement that begins a new scope (like 'if', 'for', 'try'), don't treat it as incomplete. Instead, acknowledge the visible scope boundary and analyze only the code shown.
+{%- if repo_context %}
+- You may also receive repository context snippets retrieved from the same codebase and related documentation. Use them as supporting evidence for existing behavior, nearby implementation, and product constraints. If they conflict with the diff, prefer the concrete diff context and note the uncertainty.
+{%- endif %}
+{%- if testcase_context %}
+- You may also receive testcase context from Confluence, including case_id, case_name, and expected steps. Evaluate alignment between PR changes and testcase steps conservatively, and avoid overstating coverage when evidence is weak.
+{%- endif %}
 
 Determining what to flag:
 - For clear bugs and security issues, be thorough. Do not skip a genuine problem just because the trigger scenario is narrow.
@@ -84,6 +90,25 @@ class KeyIssuesComponentLink(BaseModel):
     issue_content: str = Field(description="A short and concise description of the issue, why it matters, and the specific scenario or input that triggers it. Do not mention line numbers in this field.")
     start_line: int = Field(description="The start line that corresponds to this issue in the relevant file")
     end_line: int = Field(description="The end line that corresponds to this issue in the relevant file")
+
+{%- if testcase_context %}
+class TestCaseEvidenceRef(BaseModel):
+    step: str = Field(description="The testcase step this evidence refers to")
+    path: str = Field(description="The file path where supporting evidence was found")
+    source_type: str = Field(description="The source type, e.g. diff or repo_context")
+    start_line: int = Field(description="The start line for the evidence snippet")
+    end_line: int = Field(description="The end line for the evidence snippet")
+    snippet: str = Field(description="A short evidence snippet")
+
+class TestCaseAlignment(BaseModel):
+    case_id: str = Field(description="The testcase id")
+    case_name: str = Field(description="The testcase name")
+    alignment_score: int = Field(description="Alignment score from 0 to 100")
+    covered_steps: List[str] = Field(description="Testcase steps clearly covered by PR changes")
+    missing_steps: List[str] = Field(description="Testcase steps not covered by PR changes")
+    uncertain_steps: List[str] = Field(description="Testcase steps with insufficient evidence")
+    evidence_refs: List[TestCaseEvidenceRef] = Field(description="Evidence references supporting covered or uncertain steps")
+{%- endif %}
 
 {%- if require_todo_scan %}
 class TodoSection(BaseModel):
@@ -125,6 +150,9 @@ class Review(BaseModel):
 {%- endif %}
 {%- if require_tests %}
     relevant_tests: str = Field(description="yes/no question: does this PR have relevant tests added or updated?")
+{%- endif %}
+{%- if testcase_context %}
+    testcase_alignment_check: List[TestCaseAlignment] = Field(description="Case-level alignment analysis between PR changes and testcase steps")
 {%- endif %}
 {%- if question_str %}
     insights_from_user_answers: str = Field(description="shortly summarize the insights you gained from the user's answers to the questions")
@@ -271,6 +299,49 @@ User answers:
 {{ answer_str|trim }}
 '
 =====
+{%- endif %}
+
+{%- if testcase_context %}
+
+--Testcase Context--
+The following testcase entries were synced from Confluence and matched by case id.
+Use them to evaluate how well the PR aligns with expected testcase steps.
+{%- for testcase in testcase_context %}
+=====
+Case ID: '{{ testcase.case_id }}'
+Case Name: '{{ testcase.case_name }}'
+{%- if testcase.source_url %}
+Source URL: '{{ testcase.source_url }}'
+{%- endif %}
+
+Steps:
+{%- for step in testcase.steps %}
+- {{ step }}
+{%- endfor %}
+=====
+{% endfor %}
+{%- endif %}
+
+{%- if repo_context %}
+
+--Repository Context--
+The following snippets were retrieved from the same repository to provide broader codebase and documentation awareness.
+Use them as supporting context only when relevant to the PR.
+{%- for snippet in repo_context %}
+=====
+Source Type: '{{ snippet.source_type }}'
+Path: '{{ snippet.path }}'
+Lines: {{ snippet.start_line }}-{{ snippet.end_line }}
+Relevance Score: {{ snippet.score }}
+
+Title: '{{ snippet.title }}'
+
+Content:
+#####
+{{ snippet.content }}
+#####
+=====
+{% endfor %}
 {%- endif %}
 
 

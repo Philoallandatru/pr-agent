@@ -7,6 +7,7 @@
 
 * [Installation](installation/index.md)
 * [PR-Agent](installation/pr_agent.md)
+* [Bitbucket Server Offline + RAG](installation/bitbucket_server_offline_rag.md)
 
 ## Usage Guide
 

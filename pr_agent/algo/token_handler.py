@@ -1,5 +1,7 @@
 from threading import Lock
 from math import ceil
+import json
+import os
 import re
 
 from jinja2 import Environment, StrictUndefined
@@ -22,7 +24,84 @@ class ModelTypeValidator:
 class TokenEncoder:
     _encoder_instance = None
     _model = None
+    _using_fallback = False
     _lock = Lock()  # Create a lock object
+
+    @classmethod
+    def _get_tokenizer_settings(cls):
+        tokenizer_cfg = get_settings().get("tokenizer", {})
+        if isinstance(tokenizer_cfg, dict):
+            return tokenizer_cfg
+        try:
+            return dict(tokenizer_cfg)
+        except Exception:
+            return {}
+
+    @classmethod
+    def _resolve_cache_dir(cls) -> str:
+        cfg = cls._get_tokenizer_settings()
+        cache_dir = cfg.get("cache_dir", "") or os.environ.get("TIKTOKEN_CACHE_DIR", "")
+        if cache_dir:
+            cache_dir = os.path.abspath(os.path.expanduser(str(cache_dir)))
+            os.makedirs(cache_dir, exist_ok=True)
+            os.environ["TIKTOKEN_CACHE_DIR"] = cache_dir
+        return cache_dir
+
+    @classmethod
+    def _offline_only(cls) -> bool:
+        return bool(cls._get_tokenizer_settings().get("offline_only", False))
+
+    @classmethod
+    def _fallback_to_estimation(cls) -> bool:
+        return bool(cls._get_tokenizer_settings().get("fallback_to_estimation", True))
+
+    @classmethod
+    def _select_encoding_name(cls, model: str) -> str:
+        return "cl100k_base" if "gpt" in model else "o200k_base"
+
+    @classmethod
+    def _required_encodings(cls) -> list[str]:
+        configured = cls._get_tokenizer_settings().get("required_encodings", ["o200k_base", "cl100k_base"])
+        if isinstance(configured, str):
+            configured = [configured]
+        return [str(name) for name in configured if name]
+
+    @classmethod
+    def _tokenizer_cache_has_encoding(cls, cache_dir: str, encoding_name: str) -> bool:
+        if not cache_dir:
+            return False
+        manifest_path = os.path.join(cache_dir, "manifest.json")
+        if not os.path.exists(manifest_path):
+            return False
+        try:
+            with open(manifest_path, "r", encoding="utf-8") as manifest_file:
+                payload = json.load(manifest_file)
+            encodings = payload.get("encodings", [])
+            return encoding_name in encodings
+        except Exception:
+            return False
+
+    @classmethod
+    def _missing_required_encodings(cls, cache_dir: str) -> list[str]:
+        missing: list[str] = []
+        for encoding_name in cls._required_encodings():
+            if not cls._tokenizer_cache_has_encoding(cache_dir, encoding_name):
+                missing.append(encoding_name)
+        return missing
+
+    @classmethod
+    def _build_fallback_encoder(cls):
+        class ApproxEncoder:
+            @staticmethod
+            def encode(text, disallowed_special=()):  # noqa: ARG004
+                # Approximate tokenization for fully offline fallback.
+                tokens = re.findall(r"[A-Za-z_][A-Za-z0-9_]*|\d+|[^\w\s]", text or "")
+                return [0] * len(tokens)
+
+        if not cls._using_fallback:
+            get_logger().warning("Tokenizer fallback enabled: using approximate token counting")
+            cls._using_fallback = True
+        return ApproxEncoder()
 
     @classmethod
     def get_token_encoder(cls):
@@ -31,11 +110,29 @@ class TokenEncoder:
             with cls._lock:  # Lock acquisition to ensure thread safety
                 if cls._encoder_instance is None or model != cls._model:
                     cls._model = model
+                    cache_dir = cls._resolve_cache_dir()
+                    encoding_name = cls._select_encoding_name(cls._model)
                     try:
+                        if cls._offline_only():
+                            missing_required = cls._missing_required_encodings(cache_dir)
+                            if missing_required:
+                                raise FileNotFoundError(
+                                    f"Offline tokenizer cache incomplete at '{cache_dir or 'unset'}'. "
+                                    f"Missing encodings: {', '.join(missing_required)}"
+                                )
+                            if not cls._tokenizer_cache_has_encoding(cache_dir, encoding_name):
+                                raise FileNotFoundError(
+                                    f"Offline tokenizer cache miss for '{encoding_name}' at '{cache_dir or 'unset'}'"
+                                )
                         cls._encoder_instance = encoding_for_model(cls._model) if "gpt" in cls._model else get_encoding(
                             "o200k_base")
-                    except:
-                        cls._encoder_instance = get_encoding("o200k_base")
+                        cls._using_fallback = False
+                    except Exception as e:
+                        get_logger().warning(f"Failed to initialize tokenizer for model '{cls._model}': {e}")
+                        if cls._fallback_to_estimation():
+                            cls._encoder_instance = cls._build_fallback_encoder()
+                        else:
+                            raise
         return cls._encoder_instance
 
 
