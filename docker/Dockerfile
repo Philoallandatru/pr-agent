@@ -26,6 +26,10 @@ FROM base AS bitbucket_server_webhook
 ADD pr_agent pr_agent
 CMD ["python", "pr_agent/servers/bitbucket_server_webhook.py"]
 
+FROM base AS bitbucket_server_polling
+ADD pr_agent pr_agent
+CMD ["python", "-m", "pr_agent.servers.bitbucket_server_polling"]
+
 FROM base AS github_polling
 ADD pr_agent pr_agent
 CMD ["python", "pr_agent/servers/github_polling.py"]

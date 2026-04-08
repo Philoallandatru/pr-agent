@@ -6,6 +6,7 @@ There are several ways to use PR-Agent:
 - [GitHub integration](./github.md)
 - [GitLab integration](./gitlab.md)
 - [BitBucket integration](./bitbucket.md)
+- [Bitbucket Server polling on Linux](./bitbucket_server_polling.md)
 - [Bitbucket Server Offline + RAG](./bitbucket_server_offline_rag.md)
 - [Azure DevOps integration](./azure.md)
 - [Gitea integration](./gitea.md)
