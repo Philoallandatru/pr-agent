@@ -203,6 +203,14 @@ extra_instructions = ""
 local_cache_dir = ""  # Custom tokenizer storage path (e.g., "/opt/pr-agent/tokenizers")
 enable_local_cache = false
 fallback_to_download = true  # Set to false for strict offline mode in internal networks
+
+[repo_context]
+enable_full_context = false  # Enable full repository context analysis
+clone_depth = 1  # Shallow clone for performance
+clone_cache_dir = "/tmp/pr-agent-repos"  # Directory for cloned repositories
+max_related_files = 20  # Maximum number of related files to include
+max_context_tokens = 10000  # Token budget for additional context
+supported_languages = ["python", "javascript", "typescript", "java", "go"]  # Languages to analyze
 file = ""              # in case there are several components with the same name, you can specify the relevant file
 class_name = ""        # in case there are several methods with the same name in the same file, you can specify the relevant class name
 
