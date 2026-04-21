@@ -1,6 +1,8 @@
 from threading import Lock
 from math import ceil
 import re
+import os
+from pathlib import Path
 
 from jinja2 import Environment, StrictUndefined
 from tiktoken import encoding_for_model, get_encoding
@@ -25,17 +27,81 @@ class TokenEncoder:
     _lock = Lock()  # Create a lock object
 
     @classmethod
+    def _load_from_local_cache(cls, model: str):
+        """
+        Attempt to load tokenizer from local cache directory
+
+        Args:
+            model: Model name to load
+
+        Returns:
+            Encoder instance if found in cache, None otherwise
+        """
+        try:
+            local_cache_dir = get_settings().get("tokenizer.local_cache_dir", "")
+            enable_local_cache = get_settings().get("tokenizer.enable_local_cache", False)
+
+            if not enable_local_cache or not local_cache_dir:
+                return None
+
+            cache_path = Path(local_cache_dir)
+            if not cache_path.exists():
+                get_logger().warning(f"Local tokenizer cache directory does not exist: {local_cache_dir}")
+                return None
+
+            # Check if tokenizer marker file exists
+            cache_file = cache_path / f"{model}.tiktoken"
+            if cache_file.exists():
+                get_logger().info(f"Loading tokenizer from local cache: {model}")
+                # tiktoken handles caching internally, we just verify the marker exists
+                # and let tiktoken load from its own cache
+                if "gpt" in model:
+                    return encoding_for_model(model)
+                else:
+                    return get_encoding(model if model in ["o200k_base", "cl100k_base", "p50k_base"] else "o200k_base")
+
+            return None
+
+        except Exception as e:
+            get_logger().warning(f"Failed to load tokenizer from local cache: {e}")
+            return None
+
+    @classmethod
     def get_token_encoder(cls):
         model = get_settings().config.model
         if cls._encoder_instance is None or model != cls._model:  # Check without acquiring the lock for performance
             with cls._lock:  # Lock acquisition to ensure thread safety
                 if cls._encoder_instance is None or model != cls._model:
                     cls._model = model
-                    try:
-                        cls._encoder_instance = encoding_for_model(cls._model) if "gpt" in cls._model else get_encoding(
-                            "o200k_base")
-                    except:
-                        cls._encoder_instance = get_encoding("o200k_base")
+
+                    # Try loading from local cache first
+                    cls._encoder_instance = cls._load_from_local_cache(cls._model)
+
+                    if cls._encoder_instance is None:
+                        # Fall back to standard loading (may download if not cached by tiktoken)
+                        fallback_to_download = get_settings().get("tokenizer.fallback_to_download", True)
+
+                        try:
+                            if "gpt" in cls._model:
+                                cls._encoder_instance = encoding_for_model(cls._model)
+                            else:
+                                cls._encoder_instance = get_encoding("o200k_base")
+                            get_logger().info(f"Loaded tokenizer using standard method: {cls._model}")
+                        except Exception as e:
+                            if not fallback_to_download:
+                                get_logger().error(
+                                    f"Failed to load tokenizer for {cls._model} and fallback_to_download is disabled. "
+                                    f"Error: {e}"
+                                )
+                                raise RuntimeError(
+                                    f"Tokenizer not available in local cache and download is disabled. "
+                                    f"Please run: python -m pr_agent.algo.tokenizer_manager download --models {cls._model}"
+                                )
+
+                            # Final fallback to o200k_base
+                            get_logger().warning(f"Failed to load tokenizer for {cls._model}, falling back to o200k_base: {e}")
+                            cls._encoder_instance = get_encoding("o200k_base")
+
         return cls._encoder_instance
 
 
