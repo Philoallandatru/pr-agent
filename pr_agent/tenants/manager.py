@@ -99,7 +99,8 @@ class TenantManager:
                 count INTEGER DEFAULT 0,
                 period TEXT NOT NULL,
                 recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE
+                FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+                UNIQUE(organization_id, resource_type, period)
             )
         """)
 
