@@ -28,6 +28,8 @@ from pr_agent.security import (
     require_role,
     User,
 )
+from pr_agent.tenants.manager import TenantManager
+from pr_agent.servers import tenant_routes
 
 # Initialize structured logger
 structured_logger = StructuredLogger(__name__)
@@ -105,6 +107,44 @@ class LogCreate(BaseModel):
     details: Optional[Dict] = None
 
 
+# Tenant management models
+class OrganizationCreate(BaseModel):
+    name: str
+    slug: str
+    plan: str = "free"
+    settings: Optional[Dict] = None
+
+
+class OrganizationUpdate(BaseModel):
+    name: Optional[str] = None
+    plan: Optional[str] = None
+    settings: Optional[Dict] = None
+
+
+class UserCreate(BaseModel):
+    username: str
+    email: str
+    password: str
+    full_name: Optional[str] = None
+
+
+class UserUpdate(BaseModel):
+    email: Optional[str] = None
+    full_name: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class MemberAdd(BaseModel):
+    user_id: int
+    role: str = "member"
+
+
+class InvitationCreate(BaseModel):
+    email: str
+    role: str = "member"
+    expires_in_days: int = 7
+
+
 # Initialize FastAPI app
 app = FastAPI(
     title="PR-Agent Web Platform",
@@ -123,6 +163,13 @@ app.add_middleware(
 
 # Database instance
 db = Database()
+
+# Tenant manager instance
+tenant_manager = TenantManager(db.db_path)
+
+# Register tenant routes
+tenant_routes.set_tenant_manager(tenant_manager)
+app.include_router(tenant_routes.router)
 
 
 # Middleware for request tracking
