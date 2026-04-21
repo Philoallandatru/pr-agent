@@ -100,18 +100,16 @@ async def root():
 
 @app.get("/api/health")
 async def health_check():
-    """Health check endpoint"""
+    """Comprehensive health check endpoint"""
     try:
-        # Test database connection
-        stats = db.get_statistics()
-        return {
-            "status": "healthy",
-            "database": "connected",
-            "timestamp": datetime.now().isoformat()
-        }
+        from pr_agent.config.validation import HealthChecker
+        checker = HealthChecker()
+        health_report = checker.check_all()
+        return health_report
     except Exception as e:
+        get_logger().error(f"Health check failed: {e}")
         return {
-            "status": "unhealthy",
+            "status": "error",
             "error": str(e),
             "timestamp": datetime.now().isoformat()
         }
