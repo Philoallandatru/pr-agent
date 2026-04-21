@@ -648,6 +648,95 @@ async def prometheus_metrics(current_user: User = Depends(get_current_user_or_ap
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# Analytics endpoints
+@app.get("/api/analytics/overview")
+async def get_analytics_overview(
+    days: int = 30,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get analytics overview for the specified time period"""
+    try:
+        from pr_agent.analytics.engine import AnalyticsEngine
+        engine = AnalyticsEngine(db)
+
+        overview = engine.get_overview(days=days)
+        return overview
+    except Exception as e:
+        get_logger().error(f"Failed to get analytics overview: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/analytics/trends")
+async def get_analytics_trends(
+    metric: str = "review_count",
+    days: int = 30,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get trend analysis for a specific metric"""
+    try:
+        from pr_agent.analytics.engine import AnalyticsEngine
+        engine = AnalyticsEngine(db)
+
+        trends = engine.get_trends(metric=metric, days=days)
+        return trends
+    except Exception as e:
+        get_logger().error(f"Failed to get trends: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/analytics/repository/{repo_id}")
+async def get_repository_analytics(
+    repo_id: int,
+    days: int = 30,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get analytics for a specific repository"""
+    try:
+        from pr_agent.analytics.engine import AnalyticsEngine
+        engine = AnalyticsEngine(db)
+
+        analytics = engine.get_repository_analytics(repo_id=repo_id, days=days)
+        return analytics
+    except Exception as e:
+        get_logger().error(f"Failed to get repository analytics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/analytics/report")
+async def generate_analytics_report(
+    start_date: str = None,
+    end_date: str = None,
+    format: str = "json",
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Generate comprehensive analytics report"""
+    try:
+        from pr_agent.analytics.engine import AnalyticsEngine
+        from datetime import datetime
+
+        engine = AnalyticsEngine(db)
+
+        # Parse dates
+        start = datetime.fromisoformat(start_date) if start_date else None
+        end = datetime.fromisoformat(end_date) if end_date else None
+
+        report = engine.generate_report(start_date=start, end_date=end, format=format)
+
+        if format == "json":
+            return report
+        else:
+            # Return as downloadable file
+            from fastapi.responses import Response
+            return Response(
+                content=report,
+                media_type="text/plain",
+                headers={"Content-Disposition": f"attachment; filename=analytics_report.{format}"}
+            )
+    except Exception as e:
+        get_logger().error(f"Failed to generate report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # Configuration endpoints
 @app.get("/api/config")
 async def get_config(current_user: User = Depends(get_current_user_or_api_key)):
