@@ -484,7 +484,8 @@ async def retry_review(review_id: int, current_user=Depends(get_current_user_or_
 @app.get("/api/prompts")
 async def list_prompts(
     repository_id: Optional[int] = Query(None),
-    command: Optional[str] = Query(None)
+    command: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user_or_api_key)
 ):
     """List prompt templates"""
     try:
@@ -499,8 +500,14 @@ async def list_prompts(
 
 
 @app.post("/api/prompts")
-async def create_prompt(prompt: PromptTemplateCreate):
+async def create_prompt(
+    prompt: PromptTemplateCreate,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
     """Create a new prompt template"""
+    if not auth_manager.has_permission(current_user, "write"):
+        raise HTTPException(status_code=403, detail="Write permission required")
+
     try:
         prompt_id = db.add_prompt_template(
             command=prompt.command,
@@ -515,8 +522,15 @@ async def create_prompt(prompt: PromptTemplateCreate):
 
 
 @app.put("/api/prompts/{prompt_id}")
-async def update_prompt(prompt_id: int, update: PromptTemplateUpdate):
+async def update_prompt(
+    prompt_id: int,
+    update: PromptTemplateUpdate,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
     """Update prompt template"""
+    if not auth_manager.has_permission(current_user, "write"):
+        raise HTTPException(status_code=403, detail="Write permission required")
+
     try:
         db.update_prompt_template(
             template_id=prompt_id,
@@ -530,8 +544,14 @@ async def update_prompt(prompt_id: int, update: PromptTemplateUpdate):
 
 
 @app.delete("/api/prompts/{prompt_id}")
-async def delete_prompt(prompt_id: int):
+async def delete_prompt(
+    prompt_id: int,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
     """Delete prompt template"""
+    if not auth_manager.has_permission(current_user, "delete"):
+        raise HTTPException(status_code=403, detail="Delete permission required")
+
     try:
         db.delete_prompt_template(prompt_id)
         return {"message": "Prompt template deleted successfully"}
@@ -542,7 +562,7 @@ async def delete_prompt(prompt_id: int):
 
 # System monitoring endpoints
 @app.get("/api/status")
-async def get_status():
+async def get_status(current_user: User = Depends(get_current_user_or_api_key)):
     """Get system status"""
     try:
         # TODO: Check polling service status
@@ -560,7 +580,8 @@ async def get_status():
 async def get_logs(
     level: Optional[str] = Query(None),
     limit: int = Query(100, ge=1, le=1000),
-    offset: int = Query(0, ge=0)
+    offset: int = Query(0, ge=0),
+    current_user: User = Depends(get_current_user_or_api_key)
 ):
     """Get system logs"""
     try:
@@ -572,8 +593,14 @@ async def get_logs(
 
 
 @app.post("/api/logs")
-async def create_log(log: LogCreate):
+async def create_log(
+    log: LogCreate,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
     """Add system log entry"""
+    if not auth_manager.has_permission(current_user, "write"):
+        raise HTTPException(status_code=403, detail="Write permission required")
+
     try:
         db.add_log(
             level=log.level,
@@ -587,7 +614,7 @@ async def create_log(log: LogCreate):
 
 
 @app.get("/api/metrics")
-async def get_metrics():
+async def get_metrics(current_user: User = Depends(get_current_user_or_api_key)):
     """Get platform statistics and metrics"""
     try:
         stats = db.get_statistics()
@@ -604,7 +631,7 @@ async def get_metrics():
 
 
 @app.get("/metrics")
-async def prometheus_metrics():
+async def prometheus_metrics(current_user: User = Depends(get_current_user_or_api_key)):
     """Prometheus metrics endpoint"""
     try:
         from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
@@ -623,8 +650,11 @@ async def prometheus_metrics():
 
 # Configuration endpoints
 @app.get("/api/config")
-async def get_config():
-    """Get current configuration"""
+async def get_config(current_user: User = Depends(get_current_user_or_api_key)):
+    """Get current configuration (admin only)"""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin permission required")
+
     try:
         config = {
             "bitbucket_server": {
