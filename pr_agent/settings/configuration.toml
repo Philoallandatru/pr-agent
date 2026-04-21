@@ -198,6 +198,11 @@ enable_help_text=false
 [pr_improve_component] # /improve_component #
 num_code_suggestions=4
 extra_instructions = ""
+
+[tokenizer]
+local_cache_dir = ""  # Custom tokenizer storage path (e.g., "/opt/pr-agent/tokenizers")
+enable_local_cache = false
+fallback_to_download = true  # Set to false for strict offline mode in internal networks
 file = ""              # in case there are several components with the same name, you can specify the relevant file
 class_name = ""        # in case there are several methods with the same name in the same file, you can specify the relevant class name
 
@@ -290,6 +295,27 @@ pr_commands = [
     "/improve --pr_code_suggestions.commitable_code_suggestions=true",
 ]
 avoid_full_files = false
+
+[bitbucket_server]
+url = ""
+# Webhook settings
+pr_commands = [
+    "/describe --pr_description.final_update_message=false",
+    "/review",
+    "/improve --pr_code_suggestions.commitable_code_suggestions=true",
+]
+# Polling settings
+enable_polling = false
+polling_interval_seconds = 300  # 5 minutes
+polling_repositories = []  # List of "PROJECT/repo-slug" to monitor
+# polling_repositories = ["PROJ/backend-api", "PROJ/frontend-app"]
+polling_commands = [
+    "/describe --pr_description.final_update_message=false",
+    "/review",
+    "/improve --pr_code_suggestions.commitable_code_suggestions=true",
+]
+polling_state_file = ".pr_agent_polling_state.json"
+max_parallel_tasks = 10
 
 [local]
 # LocalGitProvider settings - uncomment to use paths other than default

@@ -214,6 +214,45 @@ class BitbucketServerProvider(GitProvider):
         diffstat = [change["path"]['toString'] for change in changes]
         return diffstat
 
+    def list_pull_requests(self, project_key: str, repo_slug: str, state: str = "OPEN", limit: int = 50):
+        """
+        List pull requests for a repository
+
+        Args:
+            project_key: Bitbucket project key
+            repo_slug: Repository slug
+            state: PR state filter (OPEN, MERGED, DECLINED, ALL)
+            limit: Maximum number of PRs to return
+
+        Returns:
+            List of PR objects with id, version, title, author, branches
+        """
+        try:
+            prs = self.bitbucket_client.get_pull_requests(
+                project_key,
+                repo_slug,
+                state=state,
+                limit=limit
+            )
+
+            result = []
+            for pr in prs:
+                result.append({
+                    'id': pr.get('id'),
+                    'version': pr.get('version'),
+                    'title': pr.get('title'),
+                    'author': pr.get('author', {}).get('user', {}).get('name'),
+                    'fromRef': pr.get('fromRef', {}),
+                    'toRef': pr.get('toRef', {}),
+                    'createdDate': pr.get('createdDate'),
+                    'updatedDate': pr.get('updatedDate'),
+                })
+
+            return result
+        except Exception as e:
+            get_logger().error(f"Failed to list pull requests for {project_key}/{repo_slug}: {e}")
+            return []
+
     #gets the best common ancestor: https://git-scm.com/docs/git-merge-base
     @staticmethod
     def get_best_common_ancestor(source_commits_list, destination_commits_list, guaranteed_common_ancestor) -> str:
