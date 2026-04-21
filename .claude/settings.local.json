@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls pr_agent/tools/*.py)",
+      "Bash(ls pr_agent/git_providers/*.py)",
+      "Bash(ls pr_agent/algo/*.py)",
+      "Bash(ls:*)"
+    ]
+  }
+}

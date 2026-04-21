@@ -8,6 +8,7 @@ and triggers review commands.
 import asyncio
 import multiprocessing
 import traceback
+import time
 from collections import deque
 from datetime import datetime
 
@@ -17,8 +18,12 @@ from pr_agent.git_providers.bitbucket_server_provider import BitbucketServerProv
 from pr_agent.log import LoggingFormat, get_logger, setup_logger
 from pr_agent.servers.bitbucket_server_webhook import should_process_pr_logic, _run_commands_sequentially
 from pr_agent.storage.polling_state import PollingState
+from pr_agent.monitoring.metrics import metrics, PerformanceTracker, StructuredLogger
 
 setup_logger(fmt=LoggingFormat.JSON, level=get_settings().get("CONFIG.LOG_LEVEL", "DEBUG"))
+
+# Initialize structured logger
+structured_logger = StructuredLogger(__name__)
 
 
 def process_pr_sync(pr_url: str, commands: list, log_context: dict):
@@ -45,10 +50,22 @@ async def process_pr(pr_url: str, commands: list, log_context: dict):
         commands: List of commands to execute
         log_context: Logging context
     """
+    start_time = time.time()
+    repo_name = log_context.get('repository', 'unknown')
+
     try:
-        await _run_commands_sequentially(commands, pr_url, log_context)
-        get_logger().info(f"Finished processing PR: {pr_url}")
+        with PerformanceTracker("process_pr") as tracker:
+            tracker.add_metadata(pr_url=pr_url, repository=repo_name)
+            await _run_commands_sequentially(commands, pr_url, log_context)
+
+        duration = time.time() - start_time
+        metrics.track_pr_review(repo_name, "success", duration)
+        structured_logger.info("PR processed successfully", pr_url=pr_url, duration=f"{duration:.2f}s")
+
     except Exception as e:
+        duration = time.time() - start_time
+        metrics.track_pr_review(repo_name, "error", duration)
+        structured_logger.error("PR processing failed", pr_url=pr_url, error=str(e))
         get_logger().error(f"Error processing PR: {e}", artifact={"traceback": traceback.format_exc()})
 
 
@@ -76,7 +93,7 @@ async def poll_repository(
     tasks = []
 
     try:
-        get_logger().info(f"Polling repository: {repo_key}")
+        structured_logger.info("Polling repository", repository=repo_key)
 
         # List open PRs
         prs = provider.list_pull_requests(project_key, repo_slug, state="OPEN", limit=50)

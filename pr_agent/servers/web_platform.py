@@ -6,10 +6,11 @@ Provides REST API for repository management, review history, and prompt customiz
 """
 
 import os
+import time
 from typing import Dict, List, Optional
 from datetime import datetime
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
@@ -17,6 +18,10 @@ import uvicorn
 from pr_agent.config_loader import get_settings
 from pr_agent.log import get_logger
 from pr_agent.storage.database import Database
+from pr_agent.monitoring.metrics import metrics, StructuredLogger
+
+# Initialize structured logger
+structured_logger = StructuredLogger(__name__)
 
 
 # Pydantic models for request/response
@@ -87,6 +92,33 @@ app.add_middleware(
 db = Database()
 
 
+# Middleware for request tracking
+@app.middleware("http")
+async def track_requests(request: Request, call_next):
+    """Track HTTP requests with metrics."""
+    start_time = time.time()
+
+    response = await call_next(request)
+
+    duration = time.time() - start_time
+    metrics.track_http_request(
+        method=request.method,
+        endpoint=request.url.path,
+        status=response.status_code,
+        duration=duration
+    )
+
+    structured_logger.info(
+        "HTTP request",
+        method=request.method,
+        path=request.url.path,
+        status=response.status_code,
+        duration=f"{duration:.3f}s"
+    )
+
+    return response
+
+
 # Health check
 @app.get("/")
 async def root():
@@ -120,10 +152,13 @@ async def health_check():
 async def list_repositories():
     """List all monitored repositories"""
     try:
+        start_time = time.time()
         repos = db.get_all_repositories()
+        metrics.track_database_query("get_all_repositories", time.time() - start_time)
         return {"repositories": repos}
     except Exception as e:
         get_logger().error(f"Failed to list repositories: {e}")
+        metrics.increment_error("list_repositories_error")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -395,9 +430,33 @@ async def get_metrics():
     """Get platform statistics and metrics"""
     try:
         stats = db.get_statistics()
+
+        # Add system metrics
+        from pr_agent.monitoring.metrics import get_system_metrics
+        system_metrics = get_system_metrics()
+        stats['system'] = system_metrics
+
         return stats
     except Exception as e:
         get_logger().error(f"Failed to get metrics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/metrics")
+async def prometheus_metrics():
+    """Prometheus metrics endpoint"""
+    try:
+        from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+        from fastapi.responses import Response
+
+        return Response(
+            content=generate_latest(),
+            media_type=CONTENT_TYPE_LATEST
+        )
+    except ImportError:
+        return {"error": "Prometheus client not installed"}
+    except Exception as e:
+        get_logger().error(f"Failed to generate metrics: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
