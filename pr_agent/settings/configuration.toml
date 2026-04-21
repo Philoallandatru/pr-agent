@@ -211,6 +211,12 @@ clone_cache_dir = "/tmp/pr-agent-repos"  # Directory for cloned repositories
 max_related_files = 20  # Maximum number of related files to include
 max_context_tokens = 10000  # Token budget for additional context
 supported_languages = ["python", "javascript", "typescript", "java", "go"]  # Languages to analyze
+
+[web_platform]
+enable = false  # Enable web management platform
+host = "0.0.0.0"
+port = 8080
+database_path = "pr_agent.db"  # SQLite database path
 file = ""              # in case there are several components with the same name, you can specify the relevant file
 class_name = ""        # in case there are several methods with the same name in the same file, you can specify the relevant class name
 
