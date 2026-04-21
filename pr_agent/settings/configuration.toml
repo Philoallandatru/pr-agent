@@ -414,3 +414,32 @@ pr_commands = [
     "/review",
     "/improve",
 ]
+
+[webhook]
+# Webhook notification settings
+enabled = false
+timeout = 10
+retry_count = 3
+
+# Slack
+slack_enabled = false
+slack_url = ""
+
+# DingTalk (钉钉)
+dingtalk_enabled = false
+dingtalk_url = ""
+dingtalk_secret = ""
+
+# WeCom (企业微信)
+wecom_enabled = false
+wecom_url = ""
+
+# Custom webhooks
+custom_urls = []
+
+# Notification events to send
+notify_review_started = true
+notify_review_completed = true
+notify_review_failed = true
+notify_pr_approved = false
+notify_pr_rejected = false

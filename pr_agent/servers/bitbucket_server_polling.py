@@ -19,6 +19,7 @@ from pr_agent.log import LoggingFormat, get_logger, setup_logger
 from pr_agent.servers.bitbucket_server_webhook import should_process_pr_logic, _run_commands_sequentially
 from pr_agent.storage.polling_state import PollingState
 from pr_agent.monitoring.metrics import metrics, PerformanceTracker, StructuredLogger
+from pr_agent.notifications import notify_review_started, notify_review_completed, notify_review_failed
 
 setup_logger(fmt=LoggingFormat.JSON, level=get_settings().get("CONFIG.LOG_LEVEL", "DEBUG"))
 
@@ -52,8 +53,23 @@ async def process_pr(pr_url: str, commands: list, log_context: dict):
     """
     start_time = time.time()
     repo_name = log_context.get('repository', 'unknown')
+    pr_number = log_context.get('pr_number', 'unknown')
+    pr_author = log_context.get('author', 'unknown')
+    pr_title = log_context.get('title', '')
+
+    # Build PR data for notifications
+    pr_data = {
+        'repository': repo_name,
+        'pr_number': pr_number,
+        'author': pr_author,
+        'title': pr_title,
+        'url': pr_url
+    }
 
     try:
+        # Notify review started
+        await notify_review_started(pr_data)
+
         with PerformanceTracker("process_pr") as tracker:
             tracker.add_metadata(pr_url=pr_url, repository=repo_name)
             await _run_commands_sequentially(commands, pr_url, log_context)
@@ -62,11 +78,22 @@ async def process_pr(pr_url: str, commands: list, log_context: dict):
         metrics.track_pr_review(repo_name, "success", duration)
         structured_logger.info("PR processed successfully", pr_url=pr_url, duration=f"{duration:.2f}s")
 
+        # Notify review completed
+        review_data = {
+            'duration': duration,
+            'commands': commands,
+            'status': 'success'
+        }
+        await notify_review_completed(pr_data, review_data)
+
     except Exception as e:
         duration = time.time() - start_time
         metrics.track_pr_review(repo_name, "error", duration)
         structured_logger.error("PR processing failed", pr_url=pr_url, error=str(e))
         get_logger().error(f"Error processing PR: {e}", artifact={"traceback": traceback.format_exc()})
+
+        # Notify review failed
+        await notify_review_failed(pr_data, str(e))
 
 
 async def poll_repository(
