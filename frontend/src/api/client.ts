@@ -6,6 +6,42 @@ const api = axios.create({
   timeout: 10000,
 });
 
+// Add authentication token to all requests
+api.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// Handle 401 errors by redirecting to login
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('token');
+      window.location.href = '/login';
+    }
+    return Promise.reject(error);
+  }
+);
+
+// Authentication
+export const login = (username: string, password: string) =>
+  api.post<{ access_token: string; token_type: string; expires_in: number }>('/auth/login', {
+    username,
+    password,
+  }).then(res => res.data);
+
+export const getCurrentUser = () =>
+  api.get<{ username: string; email: string; role: string }>('/auth/me').then(res => res.data);
+
 // Repositories
 export const getRepositories = () =>
   api.get<Repository[]>('/repositories').then(res => res.data);
@@ -60,3 +96,6 @@ export const getLogs = (params?: { level?: string; limit?: number }) =>
 
 export const getHealth = () =>
   api.get('/health').then(res => res.data);
+
+// Export the axios instance for use in AuthContext
+export const apiClient = api;
