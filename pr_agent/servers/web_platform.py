@@ -38,6 +38,8 @@ from pr_agent.audit import get_audit_logger, AuditEventType, AuditSeverity
 from pr_agent.servers.log_stream import init_log_streaming, handle_log_stream, get_log_stream_manager
 from pr_agent.backup import BackupManager
 from pr_agent.plugins import PluginManager
+from strawberry.fastapi import GraphQLRouter
+from pr_agent.graphql import schema
 
 # Initialize structured logger
 structured_logger = StructuredLogger(__name__)
@@ -258,6 +260,10 @@ if quota_enabled:
 # Register tenant routes
 tenant_routes.set_tenant_manager(tenant_manager)
 app.include_router(tenant_routes.router)
+
+# Register GraphQL endpoint
+graphql_app = GraphQLRouter(schema)
+app.include_router(graphql_app, prefix="/graphql", tags=["GraphQL"])
 
 
 # Middleware for request tracking
