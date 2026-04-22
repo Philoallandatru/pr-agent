@@ -44,6 +44,7 @@ from pr_agent.suggestions import get_suggestion_engine, SuggestionType, Suggesti
 from pr_agent.collaboration import get_collaboration_manager, User as CollabUser, UserStatus
 from pr_agent.collaboration.websocket import handle_collaboration_websocket
 from pr_agent.coverage import get_coverage_tracker, CoverageStatus
+from pr_agent.ai_review import get_ai_reviewer, ReviewCategory, ReviewSeverity
 from strawberry.fastapi import GraphQLRouter
 from pr_agent.graphql import schema
 
@@ -2379,6 +2380,144 @@ async def get_file_coverage(
     except Exception as e:
         get_logger().error(f"Failed to get file coverage: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# AI Review endpoints
+class AIReviewFileRequest(BaseModel):
+    file_path: str
+    use_ai: bool = False
+
+
+class AIReviewPRRequest(BaseModel):
+    files: List[Dict[str, str]]  # [{"path": "...", "diff": "..."}]
+    use_ai: bool = False
+
+
+@app.post("/api/ai-review/file")
+async def review_file(
+    request: AIReviewFileRequest,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Review a single file with AI-driven analysis."""
+    try:
+        reviewer = get_ai_reviewer()
+        findings = reviewer.review_file(request.file_path)
+
+        # Log audit event
+        audit_logger = get_audit_logger()
+        audit_logger.log_event(
+            event_type=AuditEventType.REVIEW_COMPLETED,
+            user_id=current_user.username,
+            severity=AuditSeverity.INFO,
+            details={
+                "file_path": request.file_path,
+                "findings_count": len(findings),
+                "use_ai": request.use_ai
+            }
+        )
+
+        return {
+            "findings": [
+                {
+                    "category": f.category.value,
+                    "severity": f.severity.value,
+                    "title": f.title,
+                    "description": f.description,
+                    "file_path": f.file_path,
+                    "line_start": f.line_start,
+                    "line_end": f.line_end,
+                    "code_snippet": f.code_snippet,
+                    "suggestion": f.suggestion,
+                    "confidence": f.confidence,
+                }
+                for f in findings
+            ]
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to review file: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/ai-review/pr")
+async def review_pr(
+    request: AIReviewPRRequest,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Review a pull request with AI-driven analysis."""
+    try:
+        reviewer = get_ai_reviewer()
+        report = reviewer.review_pr(request.files)
+
+        # Log audit event
+        audit_logger = get_audit_logger()
+        audit_logger.log_event(
+            event_type=AuditEventType.REVIEW_COMPLETED,
+            user_id=current_user.username,
+            severity=AuditSeverity.INFO,
+            details={
+                "files_reviewed": report.files_reviewed,
+                "total_findings": report.total_findings,
+                "critical_count": report.critical_count,
+                "high_count": report.high_count,
+                "use_ai": request.use_ai
+            }
+        )
+
+        return {
+            "timestamp": report.timestamp,
+            "files_reviewed": report.files_reviewed,
+            "total_findings": report.total_findings,
+            "critical_count": report.critical_count,
+            "high_count": report.high_count,
+            "medium_count": report.medium_count,
+            "low_count": report.low_count,
+            "by_category": report.by_category,
+            "summary": report.summary,
+            "findings": [
+                {
+                    "category": f.category.value,
+                    "severity": f.severity.value,
+                    "title": f.title,
+                    "description": f.description,
+                    "file_path": f.file_path,
+                    "line_start": f.line_start,
+                    "line_end": f.line_end,
+                    "code_snippet": f.code_snippet,
+                    "suggestion": f.suggestion,
+                    "confidence": f.confidence,
+                }
+                for f in report.findings
+            ]
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to review PR: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/ai-review/categories")
+async def get_review_categories(
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get available review categories."""
+    return {
+        "categories": [
+            {"value": cat.value, "name": cat.name}
+            for cat in ReviewCategory
+        ]
+    }
+
+
+@app.get("/api/ai-review/severities")
+async def get_review_severities(
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get available severity levels."""
+    return {
+        "severities": [
+            {"value": sev.value, "name": sev.name}
+            for sev in ReviewSeverity
+        ]
+    }
 
 
 if __name__ == "__main__":
