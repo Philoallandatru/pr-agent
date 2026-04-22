@@ -66,6 +66,11 @@ from pr_agent.templates import (
     TemplateLanguage,
     TemplateCategory,
 )
+from pr_agent.formatting import (
+    get_formatter_manager,
+    FormatterLanguage,
+    FormatConfig,
+)
 from strawberry.fastapi import GraphQLRouter
 from pr_agent.graphql import schema
 
@@ -3246,6 +3251,83 @@ async def preview_template(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         get_logger().error(f"Failed to preview template: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Code Formatting Endpoints
+
+@app.post("/api/format")
+async def format_code(
+    code: str,
+    language: str,
+    config: Optional[Dict[str, any]] = None,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Format code for specified language."""
+    try:
+        # Parse config
+        format_config = None
+        if config:
+            format_config = FormatConfig(**config)
+
+        manager = get_formatter_manager(format_config)
+        lang = FormatterLanguage(language)
+        result = manager.format(code, lang)
+
+        return {
+            "success": result.success,
+            "formatted_code": result.formatted_code,
+            "changes_made": result.changes_made,
+            "error": result.error,
+            "formatter": result.formatter
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        get_logger().error(f"Failed to format code: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/format/check")
+async def check_format(
+    code: str,
+    language: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Check if code is properly formatted."""
+    try:
+        manager = get_formatter_manager()
+        lang = FormatterLanguage(language)
+        is_formatted = manager.check(code, lang)
+
+        return {
+            "is_formatted": is_formatted,
+            "language": language
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        get_logger().error(f"Failed to check format: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/format/available")
+async def get_available_formatters(
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get list of available formatters."""
+    try:
+        manager = get_formatter_manager()
+        available = manager.get_available_formatters()
+
+        return {
+            "formatters": {
+                lang.value: is_available
+                for lang, is_available in available.items()
+            }
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to get available formatters: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
