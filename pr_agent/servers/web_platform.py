@@ -45,6 +45,11 @@ from pr_agent.collaboration import get_collaboration_manager, User as CollabUser
 from pr_agent.collaboration.websocket import handle_collaboration_websocket
 from pr_agent.coverage import get_coverage_tracker, CoverageStatus
 from pr_agent.ai_review import get_ai_reviewer, ReviewCategory, ReviewSeverity
+from pr_agent.dependency_graph import (
+    DependencyGraphAnalyzer,
+    get_dependency_visualizer,
+    NodeType,
+)
 from strawberry.fastapi import GraphQLRouter
 from pr_agent.graphql import schema
 
@@ -2518,6 +2523,118 @@ async def get_review_severities(
             for sev in ReviewSeverity
         ]
     }
+
+
+# Dependency Graph endpoints
+class DependencyAnalysisRequest(BaseModel):
+    directory: str
+    patterns: Optional[List[str]] = None
+
+
+class DependencyVisualizationRequest(BaseModel):
+    directory: str
+    output_path: str
+    format: str = "svg"
+    layout: str = "dot"
+    patterns: Optional[List[str]] = None
+
+
+@app.post("/api/dependency-graph/analyze")
+async def analyze_dependencies(
+    request: DependencyAnalysisRequest,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Analyze code dependencies in a directory."""
+    try:
+        analyzer = get_dependency_analyzer()
+        graph = analyzer.analyze_directory(request.directory, request.patterns)
+
+        return {
+            "nodes": list(graph.nodes),
+            "edges": [{"source": s, "target": t} for s, t in graph.edges],
+            "node_count": len(graph.nodes),
+            "edge_count": len(graph.edges)
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to analyze dependencies: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/dependency-graph/visualize")
+async def visualize_dependencies(
+    request: DependencyVisualizationRequest,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Generate dependency graph visualization."""
+    try:
+        analyzer = get_dependency_analyzer()
+        visualizer = get_dependency_visualizer()
+
+        # Analyze dependencies
+        graph = analyzer.analyze_directory(request.directory, request.patterns)
+
+        # Generate visualization
+        visualizer.generate_graph(
+            graph,
+            request.output_path,
+            format=request.format,
+            layout=request.layout
+        )
+
+        return {
+            "message": "Visualization generated successfully",
+            "output_path": f"{request.output_path}.{request.format}",
+            "node_count": len(graph.nodes),
+            "edge_count": len(graph.edges)
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to visualize dependencies: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/dependency-graph/cycles")
+async def detect_dependency_cycles(
+    request: DependencyAnalysisRequest,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Detect circular dependencies."""
+    try:
+        analyzer = get_dependency_analyzer()
+        graph = analyzer.analyze_directory(request.directory, request.patterns)
+        cycles = analyzer.detect_cycles(graph)
+
+        return {
+            "cycles": cycles,
+            "cycle_count": len(cycles),
+            "has_cycles": len(cycles) > 0
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to detect cycles: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/dependency-graph/impact")
+async def analyze_impact(
+    directory: str = Body(...),
+    module: str = Body(...),
+    patterns: Optional[List[str]] = Body(None),
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Analyze impact of changing a module."""
+    try:
+        analyzer = get_dependency_analyzer()
+        graph = analyzer.analyze_directory(directory, patterns)
+        impact = analyzer.get_impact_analysis(graph, module)
+
+        return {
+            "module": module,
+            "direct_dependents": impact["direct_dependents"],
+            "all_dependents": impact["all_dependents"],
+            "impact_score": impact["impact_score"]
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to analyze impact: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":
