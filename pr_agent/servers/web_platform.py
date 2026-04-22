@@ -3872,6 +3872,12 @@ from pr_agent.impact import (
     ChangeType,
     RiskLevel,
 )
+from pr_agent.trends import (
+    TrendsAnalyzer,
+    MetricType,
+    TrendDirection,
+    visualize_report as visualize_trends_report,
+)
 
 
 class ImpactAnalysisRequest(BaseModel):
@@ -3987,6 +3993,277 @@ async def visualize_impact(
 
     except Exception as e:
         get_logger().error(f"Failed to visualize impact: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Quality Trends API
+# ============================================================================
+
+
+class TrendsRecordRequest(BaseModel):
+    """Request to record quality metrics."""
+    metrics: Dict[str, float]
+    file_path: Optional[str] = None
+    commit_hash: Optional[str] = None
+    storage_path: Optional[str] = None
+
+
+class TrendsAnalysisRequest(BaseModel):
+    """Request for trends analysis."""
+    metric_type: str
+    days: int = 30
+    file_path: Optional[str] = None
+    storage_path: Optional[str] = None
+
+
+class TrendsReportRequest(BaseModel):
+    """Request for trends report."""
+    days: int = 30
+    repository: str = "unknown"
+    storage_path: Optional[str] = None
+
+
+@app.post("/api/trends/record")
+async def record_quality_metrics(
+    request: TrendsRecordRequest,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """
+    Record quality metrics for trend analysis.
+
+    Metrics can include:
+    - complexity: Code complexity score
+    - maintainability: Maintainability index
+    - coverage: Test coverage percentage
+    - duplication: Code duplication percentage
+    - issues: Number of issues
+    - loc: Lines of code
+    - technical_debt: Technical debt hours
+    """
+    try:
+        # Create analyzer
+        from pathlib import Path
+        storage_path = Path(request.storage_path) if request.storage_path else None
+        analyzer = TrendsAnalyzer(storage_path)
+
+        # Convert string keys to MetricType
+        metrics = {}
+        for key, value in request.metrics.items():
+            try:
+                metric_type = MetricType(key)
+                metrics[metric_type] = value
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid metric type: {key}"
+                )
+
+        # Record metrics
+        analyzer.record_metrics(
+            metrics=metrics,
+            file_path=request.file_path,
+            commit_hash=request.commit_hash
+        )
+
+        return {
+            "status": "success",
+            "message": f"Recorded {len(metrics)} metrics",
+            "metrics": list(request.metrics.keys())
+        }
+
+    except Exception as e:
+        get_logger().error(f"Failed to record metrics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/trends/analyze")
+async def analyze_quality_trend(
+    request: TrendsAnalysisRequest,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """
+    Analyze trend for a specific quality metric.
+
+    Returns trend analysis including:
+    - Direction (improving/stable/degrading)
+    - Change percentage
+    - Current and previous values
+    - Statistics (min/max/average)
+    - Prediction with confidence
+    """
+    try:
+        # Create analyzer
+        from pathlib import Path
+        storage_path = Path(request.storage_path) if request.storage_path else None
+        analyzer = TrendsAnalyzer(storage_path)
+
+        # Convert string to MetricType
+        try:
+            metric_type = MetricType(request.metric_type)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid metric type: {request.metric_type}"
+            )
+
+        # Analyze trend
+        trend = analyzer.analyze_trend(
+            metric_type=metric_type,
+            days=request.days,
+            file_path=request.file_path
+        )
+
+        return {
+            "metric_type": trend.metric_type.value,
+            "direction": trend.direction.value,
+            "change_percentage": trend.change_percentage,
+            "current_value": trend.current_value,
+            "previous_value": trend.previous_value,
+            "average_value": trend.average_value,
+            "min_value": trend.min_value,
+            "max_value": trend.max_value,
+            "data_points": trend.data_points,
+            "prediction": trend.prediction,
+            "confidence": trend.confidence
+        }
+
+    except Exception as e:
+        get_logger().error(f"Failed to analyze trend: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/trends/degradations")
+async def detect_quality_degradations(
+    days: int = 7,
+    threshold: float = 10.0,
+    storage_path: Optional[str] = None,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """
+    Detect quality degradations.
+
+    Returns list of detected degradations with:
+    - Metric type
+    - Severity (low/medium/high/critical)
+    - Change percentage
+    - Old and new values
+    - Description
+    """
+    try:
+        # Create analyzer
+        from pathlib import Path
+        path = Path(storage_path) if storage_path else None
+        analyzer = TrendsAnalyzer(path)
+
+        # Detect degradations
+        degradations = analyzer.detect_degradations(
+            threshold_percentage=threshold,
+            days=days
+        )
+
+        return {
+            "count": len(degradations),
+            "degradations": [
+                {
+                    "metric_type": d.metric_type.value,
+                    "file_path": d.file_path,
+                    "severity": d.severity,
+                    "change_percentage": d.change_percentage,
+                    "old_value": d.old_value,
+                    "new_value": d.new_value,
+                    "timestamp": d.timestamp,
+                    "description": d.description
+                }
+                for d in degradations
+            ]
+        }
+
+    except Exception as e:
+        get_logger().error(f"Failed to detect degradations: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/trends/report")
+async def generate_trends_report(
+    request: TrendsReportRequest,
+    format: str = "json",
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """
+    Generate comprehensive trends report.
+
+    Supported formats:
+    - json: Structured JSON report
+    - text: Human-readable text report
+
+    Returns:
+    - Trends for all metrics
+    - Detected degradations
+    - Summary statistics
+    - Overall health score
+    """
+    try:
+        # Create analyzer
+        from pathlib import Path
+        storage_path = Path(request.storage_path) if request.storage_path else None
+        analyzer = TrendsAnalyzer(storage_path)
+
+        # Generate report
+        report = analyzer.generate_report(
+            days=request.days,
+            repository=request.repository
+        )
+
+        if format == "text":
+            # Generate text visualization
+            text_report = visualize_trends_report(report)
+            return {
+                "format": "text",
+                "content": text_report
+            }
+        else:
+            # Return JSON
+            return {
+                "format": "json",
+                "repository": report.repository,
+                "start_date": report.start_date,
+                "end_date": report.end_date,
+                "generated_at": report.generated_at,
+                "summary": report.summary,
+                "trends": [
+                    {
+                        "metric_type": t.metric_type.value,
+                        "direction": t.direction.value,
+                        "change_percentage": t.change_percentage,
+                        "current_value": t.current_value,
+                        "previous_value": t.previous_value,
+                        "average_value": t.average_value,
+                        "min_value": t.min_value,
+                        "max_value": t.max_value,
+                        "data_points": t.data_points,
+                        "prediction": t.prediction,
+                        "confidence": t.confidence
+                    }
+                    for t in report.trends
+                ],
+                "degradations": [
+                    {
+                        "metric_type": d.metric_type.value,
+                        "file_path": d.file_path,
+                        "severity": d.severity,
+                        "change_percentage": d.change_percentage,
+                        "old_value": d.old_value,
+                        "new_value": d.new_value,
+                        "timestamp": d.timestamp,
+                        "description": d.description
+                    }
+                    for d in report.degradations
+                ]
+            }
+
+    except Exception as e:
+        get_logger().error(f"Failed to generate report: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
