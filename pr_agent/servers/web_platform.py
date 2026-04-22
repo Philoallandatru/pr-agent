@@ -5626,6 +5626,14 @@ from pr_agent.dashboard import (
     DashboardWidget,
     TimeRange
 )
+from pr_agent.sla import (
+    SLAManager,
+    SLAPolicy,
+    SLATarget,
+    SLAPriority,
+    SLAMetric,
+    get_sla_manager
+)
 
 
 @app.post("/api/notifications/templates")
@@ -6080,6 +6088,247 @@ async def export_dashboard_data(
         raise
     except Exception as e:
         get_logger().error(f"Failed to export dashboard data: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# SLA Management API
+# ============================================================================
+
+@app.post("/api/sla/policies")
+async def create_sla_policy(
+    request: Dict[str, Any],
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Create a new SLA policy."""
+    try:
+        manager = get_sla_manager()
+
+        # Parse targets
+        targets = []
+        for t_data in request.get("targets", []):
+            target = SLATarget(
+                metric=SLAMetric(t_data["metric"]),
+                target_hours=t_data["target_hours"],
+                warning_threshold_percent=t_data.get("warning_threshold_percent", 80.0),
+                metadata=t_data.get("metadata", {})
+            )
+            targets.append(target)
+
+        policy = manager.create_policy(
+            policy_id=request["policy_id"],
+            name=request["name"],
+            description=request["description"],
+            priority=SLAPriority(request["priority"]),
+            targets=targets,
+            applies_to=request.get("applies_to", {}),
+            escalation_enabled=request.get("escalation_enabled", True),
+            escalation_targets=request.get("escalation_targets", []),
+            notification_enabled=request.get("notification_enabled", True),
+            metadata=request.get("metadata", {})
+        )
+
+        return policy.to_dict()
+    except Exception as e:
+        get_logger().error(f"Failed to create SLA policy: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/sla/policies")
+async def list_sla_policies(
+    enabled_only: bool = False,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """List all SLA policies."""
+    try:
+        manager = get_sla_manager()
+        policies = manager.list_policies(enabled_only=enabled_only)
+        return {
+            "policies": [p.to_dict() for p in policies],
+            "count": len(policies)
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to list SLA policies: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/sla/policies/{policy_id}")
+async def get_sla_policy(
+    policy_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get SLA policy by ID."""
+    try:
+        manager = get_sla_manager()
+        policy = manager.get_policy(policy_id)
+        if not policy:
+            raise HTTPException(status_code=404, detail="Policy not found")
+        return policy.to_dict()
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to get SLA policy: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/sla/policies/{policy_id}")
+async def update_sla_policy(
+    policy_id: str,
+    updates: Dict[str, Any],
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Update an SLA policy."""
+    try:
+        manager = get_sla_manager()
+        policy = manager.update_policy(policy_id, **updates)
+        return policy.to_dict()
+    except Exception as e:
+        get_logger().error(f"Failed to update SLA policy: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/sla/policies/{policy_id}")
+async def delete_sla_policy(
+    policy_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Delete an SLA policy."""
+    try:
+        manager = get_sla_manager()
+        manager.delete_policy(policy_id)
+        return {"message": "Policy deleted successfully"}
+    except Exception as e:
+        get_logger().error(f"Failed to delete SLA policy: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/sla/tracking/start")
+async def start_sla_tracking(
+    request: Dict[str, Any],
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Start tracking a review for SLA compliance."""
+    try:
+        manager = get_sla_manager()
+        manager.start_tracking(
+            review_id=request["review_id"],
+            repository=request["repository"],
+            priority=SLAPriority(request.get("priority", "normal")),
+            metadata=request.get("metadata", {})
+        )
+        return {"message": "Tracking started successfully"}
+    except Exception as e:
+        get_logger().error(f"Failed to start SLA tracking: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/sla/tracking/event")
+async def record_sla_event(
+    request: Dict[str, Any],
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Record a review event for SLA tracking."""
+    try:
+        manager = get_sla_manager()
+        timestamp = None
+        if "timestamp" in request:
+            timestamp = datetime.fromisoformat(request["timestamp"])
+
+        manager.record_event(
+            review_id=request["review_id"],
+            event_type=request["event_type"],
+            timestamp=timestamp
+        )
+        return {"message": "Event recorded successfully"}
+    except Exception as e:
+        get_logger().error(f"Failed to record SLA event: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/sla/compliance/{review_id}")
+async def check_sla_compliance(
+    review_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Check SLA compliance for a review."""
+    try:
+        manager = get_sla_manager()
+        compliance = manager.check_compliance(review_id)
+        if not compliance:
+            raise HTTPException(status_code=404, detail="No applicable SLA policy found")
+        return compliance.to_dict()
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to check SLA compliance: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/sla/violations")
+async def get_sla_violations(
+    review_id: Optional[str] = None,
+    policy_id: Optional[str] = None,
+    resolved: Optional[bool] = None,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get SLA violations with optional filters."""
+    try:
+        manager = get_sla_manager()
+        violations = manager.get_violations(
+            review_id=review_id,
+            policy_id=policy_id,
+            resolved=resolved
+        )
+        return {
+            "violations": [v.to_dict() for v in violations],
+            "count": len(violations)
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to get SLA violations: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/sla/violations/{violation_id}/resolve")
+async def resolve_sla_violation(
+    violation_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Mark an SLA violation as resolved."""
+    try:
+        manager = get_sla_manager()
+        manager.resolve_violation(violation_id)
+        return {"message": "Violation resolved successfully"}
+    except Exception as e:
+        get_logger().error(f"Failed to resolve SLA violation: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/sla/statistics")
+async def get_sla_statistics(
+    policy_id: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get SLA statistics."""
+    try:
+        manager = get_sla_manager()
+
+        start = datetime.fromisoformat(start_date) if start_date else None
+        end = datetime.fromisoformat(end_date) if end_date else None
+
+        stats = manager.get_statistics(
+            policy_id=policy_id,
+            start_date=start,
+            end_date=end
+        )
+
+        return {
+            "statistics": [s.to_dict() for s in stats],
+            "count": len(stats)
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to get SLA statistics: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
