@@ -3878,6 +3878,13 @@ from pr_agent.trends import (
     TrendDirection,
     visualize_report as visualize_trends_report,
 )
+from pr_agent.scheduler import (
+    get_scheduler,
+    ReviewJob,
+    ReviewStatus,
+    ReviewPriority,
+    TriggerType,
+)
 
 
 class ImpactAnalysisRequest(BaseModel):
@@ -4264,6 +4271,331 @@ async def generate_trends_report(
 
     except Exception as e:
         get_logger().error(f"Failed to generate report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Scheduler API
+# ============================================================================
+
+class ScheduleJobRequest(BaseModel):
+    """Request to schedule a review job."""
+    repository: str
+    pr_number: Optional[int] = None
+    branch: Optional[str] = None
+    priority: str = "normal"
+    trigger_type: str = "manual"
+    config_overrides: Optional[Dict] = None
+
+
+class ScheduleConfigRequest(BaseModel):
+    """Request to add a schedule."""
+    name: str
+    cron_expression: str
+    repository: str
+    branches: Optional[List[str]] = None
+    enabled: bool = True
+    config_overrides: Optional[Dict] = None
+
+
+class TriggerConfigRequest(BaseModel):
+    """Request to add a trigger."""
+    name: str
+    trigger_type: str
+    repository: str
+    branch_filter: Optional[str] = None
+    priority: str = "normal"
+    config_overrides: Optional[Dict] = None
+
+
+@app.post("/api/scheduler/jobs")
+async def schedule_job(
+    request: ScheduleJobRequest,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Schedule a new review job."""
+    try:
+        scheduler = get_scheduler()
+
+        job = scheduler.submit_job(
+            repository=request.repository,
+            trigger_type=TriggerType[request.trigger_type.upper()],
+            priority=ReviewPriority[request.priority.upper()],
+            pr_number=request.pr_number,
+            branch=request.branch,
+            metadata=request.config_overrides or {}
+        )
+
+        return {
+            "job_id": job.job_id,
+            "status": job.status.value,
+            "priority": job.priority.value,
+            "created_at": job.created_at.isoformat()
+        }
+
+    except Exception as e:
+        get_logger().error(f"Failed to schedule job: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/scheduler/jobs/{job_id}")
+async def get_job(
+    job_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get job details by ID."""
+    try:
+        scheduler = get_scheduler()
+        job = scheduler.get_job(job_id)
+
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+
+        return {
+            "job_id": job.job_id,
+            "repository": job.repository,
+            "pr_number": job.pr_number,
+            "branch": job.branch,
+            "status": job.status.value,
+            "priority": job.priority.value,
+            "trigger_type": job.trigger_type.value,
+            "created_at": job.created_at.isoformat(),
+            "started_at": job.started_at.isoformat() if job.started_at else None,
+            "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+            "error": job.error
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to get job: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/scheduler/jobs")
+async def list_jobs(
+    status: Optional[str] = None,
+    repository: Optional[str] = None,
+    limit: int = Query(100, le=1000),
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """List jobs with optional filtering."""
+    try:
+        scheduler = get_scheduler()
+
+        status_filter = ReviewStatus[status.upper()] if status else None
+        jobs = scheduler.list_jobs(
+            status=status_filter,
+            repository=repository,
+            limit=limit
+        )
+
+        return {
+            "jobs": [
+                {
+                    "job_id": job.job_id,
+                    "repository": job.repository,
+                    "pr_number": job.pr_number,
+                    "branch": job.branch,
+                    "status": job.status.value,
+                    "priority": job.priority.value,
+                    "trigger_type": job.trigger_type.value,
+                    "created_at": job.created_at.isoformat(),
+                    "started_at": job.started_at.isoformat() if job.started_at else None,
+                    "completed_at": job.completed_at.isoformat() if job.completed_at else None
+                }
+                for job in jobs
+            ],
+            "total": len(jobs)
+        }
+
+    except Exception as e:
+        get_logger().error(f"Failed to list jobs: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/scheduler/jobs/{job_id}")
+async def cancel_job(
+    job_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Cancel a pending or running job."""
+    try:
+        scheduler = get_scheduler()
+        success = scheduler.cancel_job(job_id)
+
+        if not success:
+            raise HTTPException(status_code=404, detail="Job not found or cannot be cancelled")
+
+        return {"message": "Job cancelled successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to cancel job: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/scheduler/schedules")
+async def add_schedule(
+    request: ScheduleConfigRequest,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Add a new schedule."""
+    try:
+        scheduler = get_scheduler()
+
+        schedule = scheduler.add_schedule(
+            schedule_id=request.name,
+            repository=request.repository,
+            cron_expression=request.cron_expression,
+            branches=request.branches,
+            enabled=request.enabled,
+            metadata=request.config_overrides or {}
+        )
+
+        return {
+            "schedule_id": schedule.schedule_id,
+            "message": "Schedule added successfully"
+        }
+
+    except Exception as e:
+        get_logger().error(f"Failed to add schedule: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/scheduler/schedules")
+async def list_schedules(
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """List all schedules."""
+    try:
+        scheduler = get_scheduler()
+        schedules = scheduler.list_schedules()
+
+        return {
+            "schedules": [
+                {
+                    "schedule_id": s.schedule_id,
+                    "name": s.name,
+                    "cron_expression": s.cron_expression,
+                    "repository": s.repository,
+                    "branches": s.branches,
+                    "enabled": s.enabled,
+                    "last_run": s.last_run.isoformat() if s.last_run else None,
+                    "next_run": s.next_run.isoformat() if s.next_run else None
+                }
+                for s in schedules
+            ]
+        }
+
+    except Exception as e:
+        get_logger().error(f"Failed to list schedules: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/scheduler/schedules/{schedule_id}")
+async def remove_schedule(
+    schedule_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Remove a schedule."""
+    try:
+        scheduler = get_scheduler()
+        success = scheduler.remove_schedule(schedule_id)
+
+        if not success:
+            raise HTTPException(status_code=404, detail="Schedule not found")
+
+        return {"message": "Schedule removed successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to remove schedule: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/scheduler/triggers")
+async def add_trigger(
+    request: TriggerConfigRequest,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Add a new trigger."""
+    try:
+        scheduler = get_scheduler()
+
+        filters = {}
+        if request.branch_filter:
+            filters["branches"] = [request.branch_filter]
+
+        trigger = scheduler.add_trigger(
+            trigger_id=request.name,
+            repository=request.repository,
+            trigger_type=TriggerType[request.trigger_type.upper()],
+            priority=ReviewPriority[request.priority.upper()],
+            filters=filters,
+            metadata=request.config_overrides or {}
+        )
+
+        return {
+            "trigger_id": trigger.trigger_id,
+            "message": "Trigger added successfully"
+        }
+
+    except Exception as e:
+        get_logger().error(f"Failed to add trigger: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/scheduler/triggers")
+async def list_triggers(
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """List all triggers."""
+    try:
+        scheduler = get_scheduler()
+        triggers = scheduler.list_triggers()
+
+        return {
+            "triggers": [
+                {
+                    "trigger_id": t.trigger_id,
+                    "name": t.name,
+                    "trigger_type": t.trigger_type.value,
+                    "repository": t.repository,
+                    "branch_filter": t.branch_filter,
+                    "priority": t.priority.value,
+                    "enabled": t.enabled
+                }
+                for t in triggers
+            ]
+        }
+
+    except Exception as e:
+        get_logger().error(f"Failed to list triggers: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/scheduler/triggers/{trigger_id}")
+async def remove_trigger(
+    trigger_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Remove a trigger."""
+    try:
+        scheduler = get_scheduler()
+        success = scheduler.remove_trigger(trigger_id)
+
+        if not success:
+            raise HTTPException(status_code=404, detail="Trigger not found")
+
+        return {"message": "Trigger removed successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to remove trigger: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
