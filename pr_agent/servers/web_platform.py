@@ -32,6 +32,7 @@ from pr_agent.tenants.manager import TenantManager
 from pr_agent.servers import tenant_routes
 from pr_agent.ratelimit import RateLimiter, QuotaManager
 from pr_agent.ratelimit.middleware import RateLimitMiddleware, QuotaMiddleware
+from pr_agent.health import HealthChecker
 
 # Initialize structured logger
 structured_logger = StructuredLogger(__name__)
@@ -168,6 +169,13 @@ db = Database()
 
 # Tenant manager instance
 tenant_manager = TenantManager(db.db_path)
+
+# Initialize health checker
+health_checker = HealthChecker(
+    db_manager=db,
+    cache_manager=None,  # Will be set after cache initialization
+    config=get_settings().config
+)
 
 # Initialize rate limiter and quota manager
 settings = get_settings()
@@ -372,20 +380,62 @@ async def revoke_api_key(
 
 
 @app.get("/api/health")
-async def health_check():
-    """Comprehensive health check endpoint"""
+async def health_check(details: bool = Query(True, description="Include detailed information")):
+    """
+    Comprehensive health check endpoint.
+
+    Checks:
+    - Database connectivity and performance
+    - Redis cache availability
+    - System resources (CPU, memory, disk)
+    - External services connectivity
+
+    Args:
+        details: Include detailed information in response
+
+    Returns:
+        Health status with component details
+    """
     try:
-        from pr_agent.config.validation import HealthChecker
-        checker = HealthChecker()
-        health_report = checker.check_all()
+        health_report = await health_checker.check_all(include_details=details)
+
+        # Set HTTP status code based on health
+        status_code = 200
+        if health_report["status"] == "unhealthy":
+            status_code = 503
+        elif health_report["status"] == "degraded":
+            status_code = 200  # Still accepting requests
+
         return health_report
     except Exception as e:
-        get_logger().error(f"Health check failed: {e}")
+        structured_logger.error(f"Health check failed: {e}")
         return {
-            "status": "error",
+            "status": "unhealthy",
             "error": str(e),
             "timestamp": datetime.now().isoformat()
         }
+
+
+@app.get("/api/health/ready")
+async def readiness_check():
+    """
+    Readiness check endpoint for Kubernetes/load balancers.
+
+    Returns 200 if service is ready to accept requests.
+    """
+    readiness = health_checker.get_readiness()
+    status_code = 200 if readiness["ready"] else 503
+    return readiness
+
+
+@app.get("/api/health/live")
+async def liveness_check():
+    """
+    Liveness check endpoint for Kubernetes/load balancers.
+
+    Returns 200 if service is alive.
+    """
+    return health_checker.get_liveness()
 
 
 # Repository endpoints
