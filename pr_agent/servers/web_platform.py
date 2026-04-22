@@ -39,6 +39,7 @@ from pr_agent.servers.log_stream import init_log_streaming, handle_log_stream, g
 from pr_agent.backup import BackupManager
 from pr_agent.plugins import PluginManager
 from pr_agent.models import get_model_manager, ModelType, ModelStatus
+from pr_agent.quality import get_quality_gate, QualityGateConfig, CheckType, Severity
 from strawberry.fastapi import GraphQLRouter
 from pr_agent.graphql import schema
 
@@ -1841,6 +1842,147 @@ async def end_ab_test(
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         get_logger().error(f"Failed to end A/B test: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Quality Gate endpoints
+class QualityCheckRequest(BaseModel):
+    file_paths: List[str]
+    config: Optional[Dict] = None
+
+
+class QualityIssueResponse(BaseModel):
+    check_type: str
+    severity: str
+    message: str
+    file_path: Optional[str] = None
+    line_number: Optional[int] = None
+    column: Optional[int] = None
+    code: Optional[str] = None
+    suggestion: Optional[str] = None
+    metadata: Dict = {}
+
+
+class QualityReportResponse(BaseModel):
+    passed: bool
+    issues: List[QualityIssueResponse]
+    metrics: Dict
+    timestamp: str
+    duration_seconds: float
+
+
+@app.post("/api/quality/check", response_model=QualityReportResponse)
+async def check_quality(
+    request: QualityCheckRequest,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Run quality checks on files."""
+    try:
+        # Configure quality gate if custom config provided
+        quality_gate = get_quality_gate()
+        if request.config:
+            from pr_agent.quality import configure_quality_gate
+            config = QualityGateConfig(**request.config)
+            configure_quality_gate(config)
+            quality_gate = get_quality_gate()
+
+        # Run checks
+        report = quality_gate.check_files(request.file_paths)
+
+        # Convert to response format
+        issues = [
+            QualityIssueResponse(
+                check_type=issue.check_type.value,
+                severity=issue.severity.value,
+                message=issue.message,
+                file_path=issue.file_path,
+                line_number=issue.line_number,
+                column=issue.column,
+                code=issue.code,
+                suggestion=issue.suggestion,
+                metadata=issue.metadata
+            )
+            for issue in report.issues
+        ]
+
+        get_audit_logger().log(
+            event_type=AuditEventType.SYSTEM_EVENT,
+            user_id=current_user.username,
+            severity=AuditSeverity.INFO,
+            details={
+                "action": "quality_check",
+                "files_checked": len(request.file_paths),
+                "issues_found": len(report.issues),
+                "passed": report.passed
+            }
+        )
+
+        return QualityReportResponse(
+            passed=report.passed,
+            issues=issues,
+            metrics=report.metrics,
+            timestamp=report.timestamp.isoformat(),
+            duration_seconds=report.duration_seconds
+        )
+    except Exception as e:
+        get_logger().error(f"Failed to run quality check: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/quality/config")
+async def get_quality_config(
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get current quality gate configuration."""
+    try:
+        quality_gate = get_quality_gate()
+        config = quality_gate.config
+
+        return {
+            "max_cyclomatic_complexity": config.max_cyclomatic_complexity,
+            "max_cognitive_complexity": config.max_cognitive_complexity,
+            "max_function_length": config.max_function_length,
+            "max_file_length": config.max_file_length,
+            "min_line_coverage": config.min_line_coverage,
+            "min_branch_coverage": config.min_branch_coverage,
+            "check_secrets": config.check_secrets,
+            "check_vulnerabilities": config.check_vulnerabilities,
+            "enforce_style": config.enforce_style,
+            "max_line_length": config.max_line_length,
+            "max_duplication_percentage": config.max_duplication_percentage,
+            "require_docstrings": config.require_docstrings,
+            "min_comment_ratio": config.min_comment_ratio,
+            "block_on_critical": config.block_on_critical,
+            "block_on_high": config.block_on_high,
+            "block_on_medium": config.block_on_medium
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to get quality config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/quality/config")
+async def update_quality_config(
+    config_data: Dict,
+    current_user: User = Depends(require_role("admin"))
+):
+    """Update quality gate configuration."""
+    try:
+        from pr_agent.quality import configure_quality_gate
+
+        config = QualityGateConfig(**config_data)
+        configure_quality_gate(config)
+
+        get_audit_logger().log(
+            event_type=AuditEventType.CONFIG_UPDATED,
+            user_id=current_user.username,
+            severity=AuditSeverity.MEDIUM,
+            details={"action": "update_quality_config", "config": config_data}
+        )
+
+        return {"message": "Quality gate configuration updated successfully"}
+    except Exception as e:
+        get_logger().error(f"Failed to update quality config: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
