@@ -1163,6 +1163,130 @@ GET    /api/tenants/organizations/{org_id}/quota
 
 ---
 
+### ✅ Phase 16: API Rate Limiting and Quota Management (COMPLETED)
+
+**Goal**: Implement comprehensive rate limiting and quota management system
+
+**Implemented**:
+- ✅ RateLimiter with multiple strategies (fixed window, sliding window, token bucket)
+- ✅ QuotaManager for organization-level resource quotas
+- ✅ Redis backend with in-memory fallback
+- ✅ FastAPI middleware for automatic enforcement
+- ✅ Per-user and per-organization limits
+- ✅ Standard rate limit headers (X-RateLimit-*)
+- ✅ Quota alert thresholds
+- ✅ 27 unit tests (all passing)
+- ✅ Complete documentation (RATE_LIMITING.md)
+
+**Key Features**:
+- **Rate Limiting Strategies**:
+  - Fixed Window: Simple counter per time window
+  - Sliding Window: Accurate rate limiting without boundary bursts
+  - Token Bucket: Burst handling with refill rate
+- **Storage Backends**:
+  - Redis: Distributed rate limiting across instances
+  - Memory: Single-instance fallback
+  - Automatic fallback on Redis failure
+- **Quota Management**:
+  - Multiple quota types (api_calls, reviews, repositories, users, storage)
+  - Multiple periods (daily, monthly, yearly, permanent)
+  - Alert thresholds (80%, 90%, 95%)
+  - Usage tracking with historical data
+- **FastAPI Integration**:
+  - Global middleware for all endpoints
+  - Per-endpoint dependencies
+  - Automatic header injection
+  - 429 responses with retry-after
+- **Flexible Configuration**:
+  - Per-user rate limits
+  - Per-organization quotas
+  - Custom limits per endpoint
+  - Exempt paths (health, metrics)
+
+**Rate Limiting**:
+```python
+from pr_agent.ratelimit import RateLimiter
+
+limiter = RateLimiter(
+    redis_client=redis_client,
+    default_limit=1000,
+    default_window=3600,  # 1000 requests per hour
+    strategy="sliding_window"
+)
+
+# Check rate limit
+allowed, info = limiter.check_rate_limit(f"user:{user_id}")
+if not allowed:
+    raise RateLimitExceeded(info['limit'], info['window'], info['retry_after'])
+```
+
+**Quota Management**:
+```python
+from pr_agent.ratelimit import QuotaManager
+
+manager = QuotaManager("pr_agent.db")
+
+# Set quota
+manager.set_quota(org_id=1, quota_type="reviews", limit=1000, reset_period="monthly")
+
+# Check and increment
+if manager.check_quota(org_id=1, quota_type="reviews"):
+    manager.increment_quota(org_id=1, quota_type="reviews")
+else:
+    raise QuotaExceeded("reviews", 1000, 1000)
+```
+
+**Middleware Integration**:
+```python
+from pr_agent.ratelimit.middleware import RateLimitMiddleware, QuotaMiddleware
+
+# Rate limiting
+app.add_middleware(
+    RateLimitMiddleware,
+    rate_limiter=limiter,
+    exempt_paths=["/health", "/metrics"]
+)
+
+# Quota enforcement
+app.add_middleware(
+    QuotaMiddleware,
+    quota_manager=quota_manager,
+    quota_paths={"/api/reviews": "reviews"}
+)
+```
+
+**Response Headers**:
+```http
+X-RateLimit-Limit: 1000
+X-RateLimit-Remaining: 847
+X-RateLimit-Reset: 1640000000
+X-Quota-Limit: 1000
+X-Quota-Remaining: 234
+X-Quota-Reset: 2024-02-01T00:00:00Z
+```
+
+**Success Metrics**:
+- ✅ 13 rate limiter tests (fixed window, sliding window, token bucket)
+- ✅ 14 quota manager tests (CRUD, alerts, periods)
+- ✅ Multiple strategies working correctly
+- ✅ Redis and memory backends functional
+- ✅ Automatic fallback on Redis failure
+- ✅ Middleware integration complete
+- ✅ Standard headers in responses
+- ✅ Alert thresholds working
+- ✅ Comprehensive documentation
+
+**Files**:
+- `pr_agent/ratelimit/limiter.py` - Rate limiter core (550 lines)
+- `pr_agent/ratelimit/quota.py` - Quota manager (450 lines)
+- `pr_agent/ratelimit/middleware.py` - FastAPI middleware (350 lines)
+- `pr_agent/ratelimit/__init__.py` - Module exports
+- `tests/unittest/test_rate_limiter.py` - 13 rate limiter tests
+- `tests/unittest/test_quota_manager.py` - 14 quota manager tests
+- `docs/RATE_LIMITING.md` - Complete documentation
+
+---
+
 ## Timeline
 
 - **Phase 1**: Completed - Local Tokenizer Caching
@@ -1180,8 +1304,9 @@ GET    /api/tenants/organizations/{org_id}/quota
 - **Phase 13**: Completed - Performance Optimization
 - **Phase 14**: Completed - Analytics and Reporting
 - **Phase 15**: Completed - Multi-Tenant User Management
+- **Phase 16**: Completed - API Rate Limiting and Quota Management
 
-**Total Progress**: 15/15 phases complete (100%) ✅
+**Total Progress**: 16/16 phases complete (100%) ✅
 
 **All features implemented, tested, documented, and production-ready!**
 
