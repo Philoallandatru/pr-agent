@@ -43,6 +43,7 @@ from pr_agent.quality import get_quality_gate, QualityGateConfig, CheckType, Sev
 from pr_agent.suggestions import get_suggestion_engine, SuggestionType, SuggestionPriority
 from pr_agent.collaboration import get_collaboration_manager, User as CollabUser, UserStatus
 from pr_agent.collaboration.websocket import handle_collaboration_websocket
+from pr_agent.coverage import get_coverage_tracker, CoverageStatus
 from strawberry.fastapi import GraphQLRouter
 from pr_agent.graphql import schema
 
@@ -2233,6 +2234,151 @@ async def collaboration_websocket(
         user_name,
         user_email
     )
+
+
+# Code Coverage endpoints
+class CoverageRunRequest(BaseModel):
+    test_command: Optional[str] = None
+    source_dirs: Optional[List[str]] = None
+
+
+@app.post("/api/coverage/run")
+async def run_coverage(
+    request: CoverageRunRequest,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Run tests with coverage and generate report."""
+    try:
+        tracker = get_coverage_tracker()
+        report = tracker.run_coverage(
+            test_command=request.test_command,
+            source_dirs=request.source_dirs
+        )
+
+        get_audit_logger().log(
+            event_type=AuditEventType.SYSTEM_EVENT,
+            user_id=current_user.username,
+            severity=AuditSeverity.INFO,
+            details={
+                "action": "run_coverage",
+                "line_coverage": report.line_coverage_percent,
+                "branch_coverage": report.branch_coverage_percent,
+            }
+        )
+
+        return {
+            "timestamp": report.timestamp,
+            "line_coverage": {
+                "percent": report.line_coverage_percent,
+                "covered": report.lines_covered,
+                "total": report.lines_valid,
+            },
+            "branch_coverage": {
+                "percent": report.branch_coverage_percent,
+                "covered": report.branches_covered,
+                "total": report.branches_valid,
+            },
+            "status": report.status.value,
+            "files_count": len(report.files),
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to run coverage: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/coverage/summary")
+async def get_coverage_summary(
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get coverage summary with trends."""
+    try:
+        tracker = get_coverage_tracker()
+        summary = tracker.generate_summary()
+        return summary
+    except Exception as e:
+        get_logger().error(f"Failed to get coverage summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/coverage/trend")
+async def get_coverage_trend(
+    days: int = Query(30, ge=1, le=365),
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get coverage trend over time."""
+    try:
+        tracker = get_coverage_tracker()
+        trend = tracker.get_trend(days=days)
+
+        return {
+            "timestamps": trend.timestamps,
+            "line_rates": [r * 100 for r in trend.line_rates],
+            "branch_rates": [r * 100 for r in trend.branch_rates],
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to get coverage trend: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/coverage/files")
+async def get_coverage_files(
+    threshold: float = Query(70.0, ge=0, le=100),
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get files with low coverage."""
+    try:
+        tracker = get_coverage_tracker()
+        low_coverage = tracker.get_low_coverage_files(threshold=threshold)
+
+        return {
+            "threshold": threshold,
+            "files": [
+                {
+                    "path": fc.file_path,
+                    "line_coverage": fc.line_coverage_percent,
+                    "branch_coverage": fc.branch_coverage_percent,
+                    "lines_covered": fc.lines_covered,
+                    "lines_total": fc.lines_valid,
+                    "missing_lines": fc.missing_lines,
+                    "status": fc.status.value,
+                }
+                for fc in sorted(low_coverage, key=lambda x: x.line_coverage_percent)
+            ]
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to get coverage files: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/coverage/file/{file_path:path}")
+async def get_file_coverage(
+    file_path: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get coverage for a specific file."""
+    try:
+        tracker = get_coverage_tracker()
+        file_cov = tracker.get_file_coverage(file_path)
+
+        if not file_cov:
+            raise HTTPException(status_code=404, detail="File coverage not found")
+
+        return {
+            "path": file_cov.file_path,
+            "line_coverage": file_cov.line_coverage_percent,
+            "branch_coverage": file_cov.branch_coverage_percent,
+            "lines_covered": file_cov.lines_covered,
+            "lines_total": file_cov.lines_valid,
+            "branches_covered": file_cov.branches_covered,
+            "branches_total": file_cov.branches_valid,
+            "missing_lines": file_cov.missing_lines,
+            "status": file_cov.status.value,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to get file coverage: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":
