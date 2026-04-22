@@ -1,0 +1,32 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: pr-agent
+
+bases:
+- ../../base
+
+nameSuffix: -prod
+
+commonLabels:
+  environment: production
+
+replicas:
+- name: pr-agent
+  count: 3
+
+patches:
+- target:
+    kind: Ingress
+    name: pr-agent
+  patch: |-
+    - op: replace
+      path: /spec/rules/0/host
+      value: pr-agent.example.com
+    - op: replace
+      path: /spec/tls/0/hosts/0
+      value: pr-agent.example.com
+
+images:
+- name: pr-agent
+  newTag: v1.0.0

@@ -1,0 +1,202 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pr-agent
+  namespace: pr-agent
+  labels:
+    app: pr-agent
+    component: web
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: pr-agent
+      component: web
+  template:
+    metadata:
+      labels:
+        app: pr-agent
+        component: web
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: pr-agent
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      initContainers:
+      - name: init-db
+        image: pr-agent:latest
+        command: ['sh', '-c', 'python -m pr_agent.storage.migration migrate']
+        env:
+        - name: PR_AGENT_CONFIG
+          value: /config/configuration.toml
+        volumeMounts:
+        - name: config
+          mountPath: /config
+        - name: data
+          mountPath: /app/data
+      containers:
+      - name: web
+        image: pr-agent:latest
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 8000
+          protocol: TCP
+        - name: metrics
+          containerPort: 9090
+          protocol: TCP
+        env:
+        - name: PR_AGENT_CONFIG
+          value: /config/configuration.toml
+        - name: BITBUCKET_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: pr-agent-secrets
+              key: BITBUCKET_TOKEN
+        - name: PR_AGENT_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: pr-agent-secrets
+              key: PR_AGENT_SECRET_KEY
+        - name: PR_AGENT_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: pr-agent-secrets
+              key: PR_AGENT_ADMIN_PASSWORD
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: pr-agent-secrets
+              key: REDIS_PASSWORD
+        - name: DB_ENCRYPTION_KEY
+          valueFrom:
+            secretKeyRef:
+              name: pr-agent-secrets
+              key: DB_ENCRYPTION_KEY
+        volumeMounts:
+        - name: config
+          mountPath: /config
+          readOnly: true
+        - name: data
+          mountPath: /app/data
+        - name: tokenizers
+          mountPath: /app/tokenizers
+        - name: repos
+          mountPath: /app/repos
+        resources:
+          requests:
+            cpu: 500m
+            memory: 1Gi
+          limits:
+            cpu: 2000m
+            memory: 4Gi
+        livenessProbe:
+          httpGet:
+            path: /api/health/liveness
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /api/health/readiness
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /api/health/liveness
+            port: http
+          initialDelaySeconds: 0
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 30
+      volumes:
+      - name: config
+        configMap:
+          name: pr-agent-config
+      - name: data
+        persistentVolumeClaim:
+          claimName: pr-agent-data
+      - name: tokenizers
+        persistentVolumeClaim:
+          claimName: pr-agent-tokenizers
+      - name: repos
+        persistentVolumeClaim:
+          claimName: pr-agent-repos
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pr-agent-poller
+  namespace: pr-agent
+  labels:
+    app: pr-agent
+    component: poller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pr-agent
+      component: poller
+  template:
+    metadata:
+      labels:
+        app: pr-agent
+        component: poller
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: pr-agent
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+      - name: poller
+        image: pr-agent:latest
+        imagePullPolicy: IfNotPresent
+        command: ['python', '-m', 'pr_agent.servers.bitbucket_server_polling']
+        env:
+        - name: PR_AGENT_CONFIG
+          value: /config/configuration.toml
+        - name: BITBUCKET_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: pr-agent-secrets
+              key: BITBUCKET_TOKEN
+        volumeMounts:
+        - name: config
+          mountPath: /config
+          readOnly: true
+        - name: data
+          mountPath: /app/data
+        resources:
+          requests:
+            cpu: 200m
+            memory: 512Mi
+          limits:
+            cpu: 1000m
+            memory: 2Gi
+      volumes:
+      - name: config
+        configMap:
+          name: pr-agent-config
+      - name: data
+        persistentVolumeClaim:
+          claimName: pr-agent-data

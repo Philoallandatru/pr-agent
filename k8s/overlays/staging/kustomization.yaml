@@ -1,0 +1,43 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: pr-agent-staging
+
+bases:
+- ../../base
+
+nameSuffix: -staging
+
+commonLabels:
+  environment: staging
+
+replicas:
+- name: pr-agent
+  count: 2
+
+patches:
+- target:
+    kind: Ingress
+    name: pr-agent
+  patch: |-
+    - op: replace
+      path: /spec/rules/0/host
+      value: pr-agent-staging.example.com
+    - op: replace
+      path: /spec/tls/0/hosts/0
+      value: pr-agent-staging.example.com
+
+- target:
+    kind: HorizontalPodAutoscaler
+    name: pr-agent
+  patch: |-
+    - op: replace
+      path: /spec/minReplicas
+      value: 2
+    - op: replace
+      path: /spec/maxReplicas
+      value: 5
+
+images:
+- name: pr-agent
+  newTag: staging

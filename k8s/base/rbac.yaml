@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pr-agent
+  namespace: pr-agent
+  labels:
+    app: pr-agent
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pr-agent
+  namespace: pr-agent
+  labels:
+    app: pr-agent
+rules:
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pr-agent
+  namespace: pr-agent
+  labels:
+    app: pr-agent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pr-agent
+subjects:
+- kind: ServiceAccount
+  name: pr-agent
+  namespace: pr-agent

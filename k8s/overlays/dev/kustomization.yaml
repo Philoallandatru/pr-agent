@@ -1,0 +1,60 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: pr-agent-dev
+
+bases:
+- ../../base
+
+nameSuffix: -dev
+
+commonLabels:
+  environment: dev
+
+replicas:
+- name: pr-agent
+  count: 1
+
+patches:
+- target:
+    kind: Deployment
+    name: pr-agent
+  patch: |-
+    - op: replace
+      path: /spec/template/spec/containers/0/resources/requests/cpu
+      value: 200m
+    - op: replace
+      path: /spec/template/spec/containers/0/resources/requests/memory
+      value: 512Mi
+    - op: replace
+      path: /spec/template/spec/containers/0/resources/limits/cpu
+      value: 1000m
+    - op: replace
+      path: /spec/template/spec/containers/0/resources/limits/memory
+      value: 2Gi
+
+- target:
+    kind: Ingress
+    name: pr-agent
+  patch: |-
+    - op: replace
+      path: /spec/rules/0/host
+      value: pr-agent-dev.example.com
+    - op: replace
+      path: /spec/tls/0/hosts/0
+      value: pr-agent-dev.example.com
+
+- target:
+    kind: HorizontalPodAutoscaler
+    name: pr-agent
+  patch: |-
+    - op: replace
+      path: /spec/minReplicas
+      value: 1
+    - op: replace
+      path: /spec/maxReplicas
+      value: 3
+
+images:
+- name: pr-agent
+  newTag: dev
