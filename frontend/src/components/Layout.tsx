@@ -25,6 +25,7 @@ import {
   History as HistoryIcon,
   Edit as EditIcon,
   Settings as SettingsIcon,
+  Article as ArticleIcon,
   AccountCircle,
   Logout,
 } from '@mui/icons-material';
@@ -38,6 +39,7 @@ const menuItems = [
   { text: 'Review History', icon: <HistoryIcon />, path: '/reviews' },
   { text: 'Prompt Editor', icon: <EditIcon />, path: '/prompts' },
   { text: 'Configuration', icon: <SettingsIcon />, path: '/config' },
+  { text: 'Logs', icon: <ArticleIcon />, path: '/logs' },
 ];
 
 interface LayoutProps {

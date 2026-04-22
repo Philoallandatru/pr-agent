@@ -10,7 +10,7 @@ import time
 from typing import Dict, List, Optional
 from datetime import datetime
 
-from fastapi import FastAPI, HTTPException, Query, Request, Depends
+from fastapi import FastAPI, HTTPException, Query, Request, Depends, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer
 from pydantic import BaseModel
@@ -35,6 +35,7 @@ from pr_agent.ratelimit.middleware import RateLimitMiddleware, QuotaMiddleware
 from pr_agent.health import HealthChecker
 from pr_agent.config.hot_reload import get_hot_reload_manager
 from pr_agent.audit import get_audit_logger, AuditEventType, AuditSeverity
+from pr_agent.servers.log_stream import init_log_streaming, handle_log_stream, get_log_stream_manager
 
 # Initialize structured logger
 structured_logger = StructuredLogger(__name__)
@@ -1265,6 +1266,66 @@ def start():
     get_logger().info(f"Starting PR-Agent Web Platform on {host}:{port}")
 
     uvicorn.run(app, host=host, port=port)
+
+
+# WebSocket endpoint for real-time log streaming
+@app.websocket("/ws/logs")
+async def websocket_logs(
+    websocket: WebSocket,
+    level: Optional[str] = Query(None),
+    search: Optional[str] = Query(None)
+):
+    """
+    WebSocket endpoint for streaming logs in real-time.
+
+    Query parameters:
+    - level: Minimum log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+    - search: Search term to filter logs
+    """
+    await handle_log_stream(websocket, level=level, search=search)
+
+
+@app.get("/api/logs/export")
+async def export_logs(
+    format: str = Query("json", regex="^(json|csv|txt)$"),
+    lines: int = Query(1000, ge=1, le=10000),
+    current_user: User = Depends(require_role("admin"))
+):
+    """Export recent logs in specified format (admin only)."""
+    try:
+        log_manager = get_log_stream_manager()
+        logs = log_manager.log_buffer[-lines:]
+
+        if format == "json":
+            return {"logs": logs}
+        elif format == "csv":
+            import csv
+            from io import StringIO
+
+            output = StringIO()
+            if logs:
+                writer = csv.DictWriter(output, fieldnames=logs[0].keys())
+                writer.writeheader()
+                writer.writerows(logs)
+
+            return {"content": output.getvalue(), "content_type": "text/csv"}
+        else:  # txt
+            lines_text = [
+                f"[{log['timestamp']}] {log['level']} - {log['logger']}: {log['message']}"
+                for log in logs
+            ]
+            return {"content": "\n".join(lines_text), "content_type": "text/plain"}
+
+    except Exception as e:
+        get_logger().error(f"Failed to export logs: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize services on startup."""
+    init_log_streaming()
+    structured_logger.info("Web platform started successfully")
 
 
 if __name__ == "__main__":
