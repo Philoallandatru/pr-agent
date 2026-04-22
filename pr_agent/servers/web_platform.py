@@ -5651,6 +5651,13 @@ from pr_agent.workflow_engine import (
     ConditionOperator,
     get_workflow_engine
 )
+from pr_agent.bot import (
+    ReviewerBot,
+    BotConfig,
+    BotCapability,
+    CommentType,
+    ReviewMode
+)
 
 
 @app.post("/api/notifications/templates")
@@ -6814,6 +6821,199 @@ async def get_execution_status(
         raise
     except Exception as e:
         get_logger().error(f"Failed to get execution status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Reviewer Bot API
+# ============================================================================
+
+# Global bot instances
+_reviewer_bots: Dict[str, ReviewerBot] = {}
+
+
+def get_reviewer_bot(bot_id: str = "default") -> ReviewerBot:
+    """Get or create reviewer bot instance."""
+    if bot_id not in _reviewer_bots:
+        config = BotConfig(
+            bot_id=bot_id,
+            name=f"PR Agent Bot {bot_id}",
+            capabilities=[
+                BotCapability.SYNTAX_CHECK,
+                BotCapability.STYLE_CHECK,
+                BotCapability.SECURITY_SCAN,
+                BotCapability.PERFORMANCE_ANALYSIS,
+                BotCapability.BEST_PRACTICES,
+                BotCapability.DOCUMENTATION_CHECK
+            ],
+            confidence_threshold=0.7,
+            learning_enabled=True
+        )
+        _reviewer_bots[bot_id] = ReviewerBot(config)
+    return _reviewer_bots[bot_id]
+
+
+@app.post("/api/bot/review")
+async def bot_review_pr(
+    request: dict,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Trigger bot PR review."""
+    try:
+        bot_id = request.get("bot_id", "default")
+        bot = get_reviewer_bot(bot_id)
+
+        result = bot.review_pr(
+            pr_id=request["pr_id"],
+            files=request["files"],
+            mode=ReviewMode(request.get("mode", "full"))
+        )
+
+        return result.to_dict()
+    except Exception as e:
+        get_logger().error(f"Bot review failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/bot/reviews/{review_id}")
+async def get_bot_review(
+    review_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get a bot review by ID."""
+    try:
+        # Search all bots for the review
+        for bot in _reviewer_bots.values():
+            review = bot.get_review(review_id)
+            if review:
+                return review.to_dict()
+
+        raise HTTPException(status_code=404, detail="Review not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to get review: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/bot/reviews")
+async def list_bot_reviews(
+    bot_id: Optional[str] = None,
+    pr_id: Optional[str] = None,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """List bot reviews."""
+    try:
+        reviews = []
+
+        if bot_id:
+            bot = get_reviewer_bot(bot_id)
+            reviews = bot.list_reviews(pr_id=pr_id)
+        else:
+            # Get reviews from all bots
+            for bot in _reviewer_bots.values():
+                reviews.extend(bot.list_reviews(pr_id=pr_id))
+
+        return {
+            "reviews": [r.to_dict() for r in reviews]
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to list reviews: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/bot/feedback")
+async def submit_bot_feedback(
+    request: dict,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Submit feedback for bot learning."""
+    try:
+        bot_id = request.get("bot_id", "default")
+        bot = get_reviewer_bot(bot_id)
+
+        bot.provide_feedback(
+            comment_id=request["comment_id"],
+            positive=request["positive"]
+        )
+
+        return {"status": "success"}
+    except Exception as e:
+        get_logger().error(f"Failed to submit feedback: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/bot/learning-stats")
+async def get_bot_learning_stats(
+    bot_id: str = "default",
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get bot learning statistics."""
+    try:
+        bot = get_reviewer_bot(bot_id)
+        stats = bot.get_learning_stats()
+        return stats
+    except Exception as e:
+        get_logger().error(f"Failed to get learning stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/bot/config")
+async def get_bot_config(
+    bot_id: str = "default",
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get bot configuration."""
+    try:
+        bot = get_reviewer_bot(bot_id)
+        return bot.export_config()
+    except Exception as e:
+        get_logger().error(f"Failed to get bot config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/bot/config")
+async def update_bot_config(
+    request: dict,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Update bot configuration."""
+    try:
+        bot_id = request.get("bot_id", "default")
+        bot = get_reviewer_bot(bot_id)
+
+        # Update config fields
+        if "confidence_threshold" in request:
+            bot.config.confidence_threshold = request["confidence_threshold"]
+        if "max_comments_per_file" in request:
+            bot.config.max_comments_per_file = request["max_comments_per_file"]
+        if "learning_enabled" in request:
+            bot.config.learning_enabled = request["learning_enabled"]
+
+        return {"status": "updated"}
+    except Exception as e:
+        get_logger().error(f"Failed to update bot config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/bot/custom-checker")
+async def add_custom_checker(
+    request: dict,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Add a custom checker to bot."""
+    try:
+        bot_id = request.get("bot_id", "default")
+        bot = get_reviewer_bot(bot_id)
+
+        # Note: This is a placeholder - actual implementation would need
+        # to handle dynamic code loading securely
+        return {
+            "status": "success",
+            "message": "Custom checker registration not yet implemented"
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to add custom checker: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
