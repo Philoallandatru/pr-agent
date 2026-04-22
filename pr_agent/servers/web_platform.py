@@ -5644,6 +5644,13 @@ from pr_agent.knowledge import (
     KnowledgeType,
     Severity as KnowledgeSeverity
 )
+from pr_agent.workflow_engine import (
+    WorkflowEngine,
+    StepType,
+    WorkflowStatus,
+    ConditionOperator,
+    get_workflow_engine
+)
 
 
 @app.post("/api/notifications/templates")
@@ -6590,6 +6597,223 @@ async def export_knowledge(
         return data
     except Exception as e:
         get_logger().error(f"Failed to export knowledge: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Workflow Engine API
+@app.post("/api/workflows")
+async def create_workflow(
+    workflow: dict,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Create a new workflow."""
+    try:
+        engine = get_workflow_engine()
+        wf = engine.create_workflow(
+            name=workflow["name"],
+            description=workflow["description"],
+            steps=workflow["steps"],
+            metadata=workflow.get("metadata")
+        )
+        return {"workflow_id": wf.workflow_id}
+    except Exception as e:
+        get_logger().error(f"Failed to create workflow: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/workflows/{workflow_id}")
+async def get_workflow(
+    workflow_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get a workflow by ID."""
+    try:
+        engine = get_workflow_engine()
+        workflow = engine.get_workflow(workflow_id)
+        if not workflow:
+            raise HTTPException(status_code=404, detail="Workflow not found")
+
+        return {
+            "workflow_id": workflow.workflow_id,
+            "name": workflow.name,
+            "description": workflow.description,
+            "status": workflow.status.value,
+            "created_at": workflow.created_at.isoformat(),
+            "steps": [
+                {
+                    "step_id": step.step_id,
+                    "name": step.name,
+                    "type": step.type.value,
+                    "config": step.config,
+                    "depends_on": step.depends_on,
+                    "parallel": step.parallel
+                }
+                for step in workflow.steps
+            ]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to get workflow: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/workflows")
+async def list_workflows(
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """List all workflows."""
+    try:
+        engine = get_workflow_engine()
+        workflows = engine.list_workflows()
+        return {
+            "workflows": [
+                {
+                    "workflow_id": wf.workflow_id,
+                    "name": wf.name,
+                    "description": wf.description,
+                    "status": wf.status.value,
+                    "created_at": wf.created_at.isoformat()
+                }
+                for wf in workflows
+            ]
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to list workflows: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/workflows/{workflow_id}")
+async def delete_workflow(
+    workflow_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Delete a workflow."""
+    try:
+        engine = get_workflow_engine()
+        result = engine.delete_workflow(workflow_id)
+        if not result:
+            raise HTTPException(status_code=404, detail="Workflow not found")
+        return {"status": "deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to delete workflow: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/workflows/{workflow_id}/execute")
+async def execute_workflow(
+    workflow_id: str,
+    context: Optional[dict] = None,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Execute a workflow."""
+    try:
+        engine = get_workflow_engine()
+        execution = engine.run_workflow(workflow_id, context)
+        return {
+            "execution_id": execution.execution_id,
+            "status": execution.status.value
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to execute workflow: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/workflows/executions/{execution_id}")
+async def get_execution(
+    execution_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get execution details."""
+    try:
+        engine = get_workflow_engine()
+        execution = engine.get_execution(execution_id)
+        if not execution:
+            raise HTTPException(status_code=404, detail="Execution not found")
+
+        return {
+            "execution_id": execution.execution_id,
+            "workflow_id": execution.workflow_id,
+            "status": execution.status.value,
+            "started_at": execution.started_at.isoformat() if execution.started_at else None,
+            "completed_at": execution.completed_at.isoformat() if execution.completed_at else None,
+            "current_step": execution.current_step,
+            "completed_steps": execution.completed_steps,
+            "failed_steps": execution.failed_steps
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to get execution: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/workflows/executions")
+async def list_executions(
+    workflow_id: Optional[str] = None,
+    status: Optional[str] = None,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """List workflow executions."""
+    try:
+        engine = get_workflow_engine()
+        workflow_status = WorkflowStatus(status) if status else None
+        executions = engine.list_executions(workflow_id=workflow_id, status=workflow_status)
+
+        return {
+            "executions": [
+                {
+                    "execution_id": ex.execution_id,
+                    "workflow_id": ex.workflow_id,
+                    "status": ex.status.value,
+                    "started_at": ex.started_at.isoformat() if ex.started_at else None,
+                    "completed_at": ex.completed_at.isoformat() if ex.completed_at else None
+                }
+                for ex in executions
+            ]
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to list executions: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/workflows/executions/{execution_id}/cancel")
+async def cancel_execution(
+    execution_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Cancel a running execution."""
+    try:
+        engine = get_workflow_engine()
+        result = engine.cancel_execution(execution_id)
+        if not result:
+            raise HTTPException(status_code=400, detail="Cannot cancel execution")
+        return {"status": "cancelled"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to cancel execution: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/workflows/executions/{execution_id}/status")
+async def get_execution_status(
+    execution_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get detailed execution status."""
+    try:
+        engine = get_workflow_engine()
+        status = engine.get_execution_status(execution_id)
+        if not status:
+            raise HTTPException(status_code=404, detail="Execution not found")
+        return status
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to get execution status: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
