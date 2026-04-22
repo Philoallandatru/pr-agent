@@ -71,6 +71,11 @@ from pr_agent.formatting import (
     FormatterLanguage,
     FormatConfig,
 )
+from pr_agent.documentation import (
+    get_doc_generator,
+    DocLanguage,
+    DocFormat,
+)
 from strawberry.fastapi import GraphQLRouter
 from pr_agent.graphql import schema
 
@@ -3329,6 +3334,149 @@ async def get_available_formatters(
     except Exception as e:
         get_logger().error(f"Failed to get available formatters: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Documentation Generation Endpoints
+# ============================================================================
+
+class GenerateDocsRequest(BaseModel):
+    """Request to generate documentation."""
+    source_dir: str
+    output_dir: str
+    language: str = "python"
+    format: str = "markdown"
+    patterns: Optional[List[str]] = None
+
+
+class GenerateDocsResponse(BaseModel):
+    """Response from documentation generation."""
+    success: bool
+    output_path: Optional[str] = None
+    modules_count: int
+    errors: List[str]
+    warnings: List[str]
+
+
+@app.post("/api/docs/generate", response_model=GenerateDocsResponse)
+async def generate_documentation(
+    request: GenerateDocsRequest,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Generate documentation from source code."""
+    try:
+        generator = get_doc_generator()
+
+        # Convert string to enum
+        language = DocLanguage(request.language.lower())
+        format = DocFormat(request.format.lower())
+
+        result = generator.generate_docs(
+            request.source_dir,
+            request.output_dir,
+            language=language,
+            format=format,
+            patterns=request.patterns
+        )
+
+        return GenerateDocsResponse(
+            success=result.success,
+            output_path=result.output_path,
+            modules_count=len(result.modules),
+            errors=result.errors,
+            warnings=result.warnings
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        get_logger().error(f"Failed to generate documentation: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class ExtractModuleRequest(BaseModel):
+    """Request to extract module documentation."""
+    code: str
+    language: str = "python"
+
+
+@app.post("/api/docs/extract")
+async def extract_module_docs(
+    request: ExtractModuleRequest,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Extract documentation from code."""
+    import tempfile
+
+    try:
+        from pr_agent.documentation.generator import PythonDocExtractor
+
+        language = DocLanguage(request.language.lower())
+
+        if language != DocLanguage.PYTHON:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Extraction only supported for Python, got {language}"
+            )
+
+        # Write code to temp file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+            f.write(request.code)
+            temp_path = f.name
+
+        try:
+            extractor = PythonDocExtractor()
+            module_doc = extractor.extract_module(temp_path)
+        finally:
+            os.unlink(temp_path)
+
+        return {
+            "name": module_doc.name,
+            "docstring": module_doc.docstring,
+            "classes": [
+                {
+                    "name": cls.name,
+                    "docstring": cls.docstring,
+                    "bases": cls.bases,
+                    "methods": [
+                        {
+                            "name": m.name,
+                            "docstring": m.docstring,
+                            "signature": m.signature,
+                            "parameters": m.parameters,
+                            "return_type": m.return_type
+                        }
+                        for m in cls.methods
+                    ]
+                }
+                for cls in module_doc.classes
+            ],
+            "functions": [
+                {
+                    "name": f.name,
+                    "docstring": f.docstring,
+                    "signature": f.signature,
+                    "parameters": f.parameters,
+                    "return_type": f.return_type
+                }
+                for f in module_doc.functions
+            ]
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        get_logger().error(f"Failed to extract documentation: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/docs/formats")
+async def get_doc_formats(
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get available documentation formats."""
+    return {
+        "formats": [f.value for f in DocFormat],
+        "languages": [l.value for l in DocLanguage]
+    }
 
 
 if __name__ == "__main__":
