@@ -5675,6 +5675,12 @@ from pr_agent.metrics import (
     TimeRange,
     get_metrics_collector,
 )
+
+from pr_agent.report_generator import (
+    ReportGenerator,
+    ReportType,
+    ReportFormat,
+    ReportConfig,
 )
 
 
@@ -7501,6 +7507,197 @@ async def compare_periods(
         raise
     except Exception as e:
         get_logger().error(f"Failed to compare periods: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Report Generator API
+_report_generator = None
+
+def get_report_generator() -> ReportGenerator:
+    """Get report generator singleton."""
+    global _report_generator
+    if _report_generator is None:
+        _report_generator = ReportGenerator()
+    return _report_generator
+
+
+@app.post("/api/reports/generate")
+async def generate_report(
+    request: Dict[str, Any],
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Generate a report."""
+    try:
+        generator = get_report_generator()
+
+        config = ReportConfig(
+            report_id=request["report_id"],
+            report_type=ReportType(request["report_type"]),
+            title=request["title"],
+            description=request.get("description", ""),
+            format=ReportFormat(request.get("format", "html")),
+            include_charts=request.get("include_charts", True),
+            include_raw_data=request.get("include_raw_data", False),
+            template_id=request.get("template_id"),
+            metadata=request.get("metadata", {})
+        )
+
+        data = request["data"]
+        start_date = None
+        end_date = None
+
+        if "start_date" in request:
+            start_date = datetime.fromisoformat(request["start_date"])
+        if "end_date" in request:
+            end_date = datetime.fromisoformat(request["end_date"])
+
+        report = generator.generate_report(config, data, start_date, end_date)
+
+        return {
+            "report_id": report.report_id,
+            "report_type": report.report_type.value,
+            "format": report.format.value,
+            "title": report.title,
+            "generated_at": report.generated_at.isoformat(),
+            "file_path": report.file_path,
+            "content": report.content,
+            "metadata": report.metadata
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/reports/{report_id}")
+async def get_report(
+    report_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get a generated report."""
+    try:
+        generator = get_report_generator()
+        report = generator.get_report(report_id)
+
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+
+        return {
+            "report_id": report.report_id,
+            "report_type": report.report_type.value,
+            "format": report.format.value,
+            "title": report.title,
+            "generated_at": report.generated_at.isoformat(),
+            "file_path": report.file_path,
+            "content": report.content,
+            "metadata": report.metadata
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/reports")
+async def list_reports(
+    report_type: Optional[str] = None,
+    format: Optional[str] = None,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """List generated reports."""
+    try:
+        generator = get_report_generator()
+
+        type_filter = ReportType(report_type) if report_type else None
+        format_filter = ReportFormat(format) if format else None
+
+        reports = generator.list_reports(type_filter, format_filter)
+
+        return {
+            "reports": [
+                {
+                    "report_id": r.report_id,
+                    "report_type": r.report_type.value,
+                    "format": r.format.value,
+                    "title": r.title,
+                    "generated_at": r.generated_at.isoformat(),
+                    "file_path": r.file_path,
+                    "metadata": r.metadata
+                }
+                for r in reports
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/reports/templates")
+async def register_report_template(
+    template: Dict[str, Any],
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Register a report template."""
+    try:
+        generator = get_report_generator()
+        generator.register_template(template["template_id"], template)
+
+        return {"message": "Template registered successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/reports/schedule")
+async def schedule_report(
+    request: Dict[str, Any],
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Schedule a report for periodic generation."""
+    try:
+        generator = get_report_generator()
+
+        config = ReportConfig(
+            report_id=request["report_id"],
+            report_type=ReportType(request["report_type"]),
+            title=request["title"],
+            description=request.get("description", ""),
+            format=ReportFormat(request.get("format", "html")),
+            metadata=request.get("metadata", {})
+        )
+
+        schedule_id = generator.schedule_report(
+            config,
+            request["schedule"],
+            request["data_source"]
+        )
+
+        return {"schedule_id": schedule_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/reports/{report_id}/download")
+async def download_report(
+    report_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Download a generated report file."""
+    try:
+        generator = get_report_generator()
+        report = generator.get_report(report_id)
+
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+
+        if not report.file_path:
+            raise HTTPException(status_code=404, detail="Report file not available")
+
+        from fastapi.responses import FileResponse
+        return FileResponse(
+            path=report.file_path,
+            filename=Path(report.file_path).name,
+            media_type="application/octet-stream"
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
