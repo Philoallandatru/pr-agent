@@ -505,3 +505,30 @@ auto_backup_include_db = true
 auto_backup_include_config = true
 auto_backup_include_cache = false
 auto_backup_include_logs = false
+
+[plugins]
+# Plugin system configuration
+enabled = true
+plugin_dir = "./plugins"  # Directory to scan for plugins
+auto_discover = true  # Automatically discover and load plugins
+
+# Plugin execution settings
+max_execution_time = 30  # Maximum execution time per plugin (seconds)
+parallel_execution = true  # Execute plugins in parallel when possible
+
+# Example plugin configurations
+[plugins.slack_notification]
+enabled = false
+webhook_url = ""
+channel = "#pr-reviews"
+mention_users = []
+
+[plugins.code_quality_analyzer]
+enabled = false
+complexity_threshold = 10
+duplication_threshold = 0.1
+
+[plugins.security_check]
+enabled = false
+check_secrets = true
+check_vulnerabilities = true

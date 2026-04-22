@@ -37,6 +37,7 @@ from pr_agent.config.hot_reload import get_hot_reload_manager
 from pr_agent.audit import get_audit_logger, AuditEventType, AuditSeverity
 from pr_agent.servers.log_stream import init_log_streaming, handle_log_stream, get_log_stream_manager
 from pr_agent.backup import BackupManager
+from pr_agent.plugins import PluginManager
 
 # Initialize structured logger
 structured_logger = StructuredLogger(__name__)
@@ -1471,6 +1472,85 @@ async def delete_backup(
         raise HTTPException(status_code=404, detail="Backup not found")
     except Exception as e:
         get_logger().error(f"Failed to delete backup: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Plugin management endpoints
+plugin_manager = PluginManager()
+
+
+class PluginConfig(BaseModel):
+    config: Dict[str, Any]
+
+
+@app.get("/api/plugins")
+async def list_plugins(current_user: User = Depends(get_current_user)):
+    """List all available plugins."""
+    try:
+        return {"plugins": plugin_manager.list_plugins()}
+    except Exception as e:
+        get_logger().error(f"Failed to list plugins: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/plugins/{plugin_name}/reload")
+async def reload_plugin(
+    plugin_name: str,
+    current_user: User = Depends(require_role("admin"))
+):
+    """Reload a plugin (admin only)."""
+    try:
+        if plugin_manager.reload_plugin(plugin_name):
+            audit_logger.log(
+                event_type=AuditEventType.CONFIG_UPDATED,
+                user_id=current_user.username,
+                severity=AuditSeverity.INFO,
+                details={"action": "reload_plugin", "plugin": plugin_name},
+            )
+            return {"message": f"Plugin {plugin_name} reloaded successfully"}
+        else:
+            raise HTTPException(status_code=404, detail="Plugin not found")
+    except Exception as e:
+        get_logger().error(f"Failed to reload plugin: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/plugins/{plugin_name}/unload")
+async def unload_plugin(
+    plugin_name: str,
+    current_user: User = Depends(require_role("admin"))
+):
+    """Unload a plugin (admin only)."""
+    try:
+        if plugin_manager.unload_plugin(plugin_name):
+            audit_logger.log(
+                event_type=AuditEventType.CONFIG_UPDATED,
+                user_id=current_user.username,
+                severity=AuditSeverity.INFO,
+                details={"action": "unload_plugin", "plugin": plugin_name},
+            )
+            return {"message": f"Plugin {plugin_name} unloaded successfully"}
+        else:
+            raise HTTPException(status_code=404, detail="Plugin not found")
+    except Exception as e:
+        get_logger().error(f"Failed to unload plugin: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/plugins/{plugin_name}")
+async def get_plugin_info(
+    plugin_name: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Get plugin information."""
+    try:
+        plugin = plugin_manager.get_plugin(plugin_name)
+        if not plugin:
+            raise HTTPException(status_code=404, detail="Plugin not found")
+
+        return plugin.get_metadata()
+    except Exception as e:
+        get_logger().error(f"Failed to get plugin info: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
