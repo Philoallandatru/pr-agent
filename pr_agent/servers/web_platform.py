@@ -5634,6 +5634,11 @@ from pr_agent.sla import (
     SLAMetric,
     get_sla_manager
 )
+from pr_agent.quality_scoring import (
+    QualityScorer,
+    ReviewScore,
+    QualityMetric
+)
 
 
 @app.post("/api/notifications/templates")
@@ -6329,6 +6334,77 @@ async def get_sla_statistics(
         }
     except Exception as e:
         get_logger().error(f"Failed to get SLA statistics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Quality Scoring API endpoints
+@app.post("/api/quality/score")
+async def calculate_quality_score(
+    review_id: str,
+    pr_id: str,
+    reviewer_id: str,
+    metrics: Dict[str, Any],
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Calculate quality score for a review."""
+    try:
+        scorer = QualityScorer()
+        score = scorer.calculate_score(
+            review_id=review_id,
+            pr_id=pr_id,
+            reviewer_id=reviewer_id,
+            metrics=metrics
+        )
+        return score.to_dict()
+    except Exception as e:
+        get_logger().error(f"Failed to calculate quality score: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/quality/reviewer-rating/{reviewer_id}")
+async def get_reviewer_rating(
+    reviewer_id: str,
+    days: int = 30,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get reviewer rating and statistics."""
+    try:
+        scorer = QualityScorer()
+        rating = scorer.get_reviewer_rating(reviewer_id, days=days)
+        return rating
+    except Exception as e:
+        get_logger().error(f"Failed to get reviewer rating: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/quality/trends")
+async def get_quality_trends(
+    reviewer_id: Optional[str] = None,
+    days: int = 90,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get quality trends over time."""
+    try:
+        scorer = QualityScorer()
+        trends = scorer.get_trends(reviewer_id=reviewer_id, days=days)
+        return {"trends": trends}
+    except Exception as e:
+        get_logger().error(f"Failed to get quality trends: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/quality/suggestions/{reviewer_id}")
+async def get_improvement_suggestions(
+    reviewer_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get improvement suggestions for a reviewer."""
+    try:
+        scorer = QualityScorer()
+        suggestions = scorer.get_improvement_suggestions(reviewer_id)
+        return {"suggestions": suggestions}
+    except Exception as e:
+        get_logger().error(f"Failed to get improvement suggestions: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
