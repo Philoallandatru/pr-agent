@@ -4793,7 +4793,339 @@ async def delete_report(
     except Exception as e:
         get_logger().error(f"Failed to delete report: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+# ============================================================================
+# Rules Engine API
+# ============================================================================
 
+from pr_agent.rules import (
+    RulesEngine,
+    Rule,
+    RuleSet,
+    RuleSeverity,
+    RuleCategory,
+    get_engine
+)
+
+
+class RuleCheckRequest(BaseModel):
+    """Request to check file against rules."""
+    file_path: str
+    content: str
+    rule_ids: Optional[List[str]] = None
+    context: Optional[Dict[str, Any]] = None
+
+
+class RuleCreateRequest(BaseModel):
+    """Request to create a new rule."""
+    rule_id: str
+    name: str
+    description: str
+    severity: str
+    category: str
+    file_patterns: List[str]
+    exclude_patterns: Optional[List[str]] = None
+    enabled: bool = True
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class RuleSetCreateRequest(BaseModel):
+    """Request to create a rule set."""
+    name: str
+    description: str
+    rule_ids: List[str]  # Will be converted to Rule objects
+    enabled: bool = True
+
+
+@app.post("/api/rules/check")
+async def check_file_rules(
+    request: RuleCheckRequest,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """
+    Check a file against rules.
+
+    Returns list of violations found.
+    """
+    try:
+        engine = get_engine()
+
+        violations = engine.check_file(
+            file_path=request.file_path,
+            content=request.content,
+            context=request.context,
+            rule_ids=request.rule_ids
+        )
+
+        return {
+            "file_path": request.file_path,
+            "violations": [
+                {
+                    "rule_id": v.rule_id,
+                    "rule_name": v.rule_name,
+                    "severity": v.severity.value,
+                    "category": v.category.value,
+                    "message": v.message,
+                    "line_number": v.line_number,
+                    "code_snippet": v.code_snippet,
+                    "suggestion": v.suggestion
+                }
+                for v in violations
+            ],
+            "total_violations": len(violations)
+        }
+
+    except Exception as e:
+        get_logger().error(f"Failed to check rules: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/rules/check-multiple")
+async def check_multiple_files(
+    files: Dict[str, str],
+    rule_ids: Optional[List[str]] = None,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """
+    Check multiple files against rules.
+
+    Args:
+        files: Dict mapping file paths to content
+        rule_ids: Optional list of specific rules to check
+    """
+    try:
+        engine = get_engine()
+
+        results = engine.check_files(
+            files=files,
+            rule_ids=rule_ids
+        )
+
+        return {
+            "results": {
+                file_path: [
+                    {
+                        "rule_id": v.rule_id,
+                        "rule_name": v.rule_name,
+                        "severity": v.severity.value,
+                        "category": v.category.value,
+                        "message": v.message,
+                        "line_number": v.line_number,
+                        "code_snippet": v.code_snippet,
+                        "suggestion": v.suggestion
+                    }
+                    for v in violations
+                ]
+                for file_path, violations in results.items()
+            },
+            "total_files": len(results),
+            "total_violations": sum(len(v) for v in results.values())
+        }
+
+    except Exception as e:
+        get_logger().error(f"Failed to check multiple files: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/rules")
+async def list_rules(
+    enabled_only: bool = False,
+    category: Optional[str] = None,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """List all registered rules."""
+    try:
+        engine = get_engine()
+        rules = engine.list_rules(enabled_only=enabled_only)
+
+        # Filter by category if specified
+        if category:
+            try:
+                cat = RuleCategory(category)
+                rules = [r for r in rules if r.category == cat]
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"Invalid category: {category}")
+
+        return {
+            "rules": [
+                {
+                    "rule_id": r.rule_id,
+                    "name": r.name,
+                    "description": r.description,
+                    "severity": r.severity.value,
+                    "category": r.category.value,
+                    "file_patterns": r.file_patterns,
+                    "exclude_patterns": r.exclude_patterns,
+                    "enabled": r.enabled,
+                    "metadata": r.metadata
+                }
+                for r in rules
+            ],
+            "total": len(rules)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to list rules: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/rules")
+async def create_rule(
+    request: RuleCreateRequest,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Create a new custom rule."""
+    try:
+        engine = get_engine()
+
+        # Parse severity and category
+        try:
+            severity = RuleSeverity(request.severity)
+            category = RuleCategory(request.category)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        # Create rule
+        rule = Rule(
+            rule_id=request.rule_id,
+            name=request.name,
+            description=request.description,
+            severity=severity,
+            category=category,
+            file_patterns=request.file_patterns,
+            exclude_patterns=request.exclude_patterns or [],
+            enabled=request.enabled,
+            metadata=request.metadata
+        )
+
+        engine.register_rule(rule)
+
+        return {
+            "message": "Rule created successfully",
+            "rule_id": rule.rule_id
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to create rule: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/rules/{rule_id}")
+async def delete_rule(
+    rule_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Delete a rule."""
+    try:
+        engine = get_engine()
+        engine.unregister_rule(rule_id)
+
+        return {"message": "Rule deleted successfully"}
+
+    except Exception as e:
+        get_logger().error(f"Failed to delete rule: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/rules/sets")
+async def list_rule_sets(
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """List all rule sets."""
+    try:
+        engine = get_engine()
+
+        return {
+            "rule_sets": [
+                {
+                    "name": name,
+                    "description": rs.description,
+                    "rule_ids": [r.rule_id for r in rs.rules],
+                    "enabled": rs.enabled
+                }
+                for name, rs in engine.rule_sets.items()
+            ]
+        }
+
+    except Exception as e:
+        get_logger().error(f"Failed to list rule sets: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/rules/sets")
+async def create_rule_set(
+    request: RuleSetCreateRequest,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Create a new rule set."""
+    try:
+        engine = get_engine()
+
+        # Convert rule IDs to Rule objects
+        rules = []
+        for rule_id in request.rule_ids:
+            if rule_id not in engine.rules:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Rule not found: {rule_id}"
+                )
+            rules.append(engine.rules[rule_id])
+
+        rule_set = RuleSet(
+            name=request.name,
+            description=request.description,
+            rules=rules,
+            enabled=request.enabled
+        )
+
+        engine.register_rule_set(rule_set)
+
+        return {
+            "message": "Rule set created successfully",
+            "name": rule_set.name
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to create rule set: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/rules/export")
+async def export_rules(
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Export all rules to JSON."""
+    try:
+        engine = get_engine()
+        rules_data = engine.export_rules()
+
+        return rules_data
+
+    except Exception as e:
+        get_logger().error(f"Failed to export rules: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/rules/import")
+async def import_rules(
+    rules_data: Dict[str, Any],
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Import rules from JSON."""
+    try:
+        engine = get_engine()
+        engine.import_rules(rules_data)
+
+        return {"message": "Rules imported successfully"}
+
+    except Exception as e:
+        get_logger().error(f"Failed to import rules: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":
