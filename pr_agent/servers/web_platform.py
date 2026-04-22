@@ -61,6 +61,11 @@ from pr_agent.refactoring import (
     RefactoringType,
     RefactoringSeverity,
 )
+from pr_agent.templates import (
+    get_template_manager,
+    TemplateLanguage,
+    TemplateCategory,
+)
 from strawberry.fastapi import GraphQLRouter
 from pr_agent.graphql import schema
 
@@ -2996,6 +3001,251 @@ async def preview_refactoring(
         }
     except Exception as e:
         get_logger().error(f"Failed to preview refactoring: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Code Template Endpoints
+
+@app.get("/api/templates")
+async def list_templates(
+    language: Optional[str] = Query(None),
+    category: Optional[str] = Query(None),
+    tags: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """List code templates with optional filters."""
+    try:
+        manager = get_template_manager()
+
+        lang = TemplateLanguage(language) if language else None
+        cat = TemplateCategory(category) if category else None
+        tag_list = tags.split(",") if tags else None
+
+        templates = manager.list_templates(language=lang, category=cat, tags=tag_list)
+
+        return {
+            "templates": [
+                {
+                    "id": t.id,
+                    "name": t.name,
+                    "description": t.description,
+                    "language": t.language.value,
+                    "category": t.category.value,
+                    "tags": t.tags,
+                    "author": t.author,
+                    "usage_count": t.usage_count,
+                    "created_at": t.created_at
+                }
+                for t in templates
+            ],
+            "total": len(templates)
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to list templates: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/templates/{template_id}")
+async def get_template(
+    template_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get a specific template by ID."""
+    try:
+        manager = get_template_manager()
+        template = manager.get_template(template_id)
+
+        if not template:
+            raise HTTPException(status_code=404, detail="Template not found")
+
+        return {
+            "id": template.id,
+            "name": template.name,
+            "description": template.description,
+            "language": template.language.value,
+            "category": template.category.value,
+            "content": template.content,
+            "variables": [
+                {
+                    "name": v.name,
+                    "description": v.description,
+                    "default": v.default,
+                    "required": v.required,
+                    "type": v.type,
+                    "choices": v.choices
+                }
+                for v in template.variables
+            ],
+            "tags": template.tags,
+            "author": template.author,
+            "usage_count": template.usage_count,
+            "created_at": template.created_at,
+            "updated_at": template.updated_at
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to get template: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/templates")
+async def create_template(
+    template_data: Dict,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Create a new code template."""
+    try:
+        from pr_agent.templates import CodeTemplate, TemplateVariable
+
+        # Parse variables
+        variables = []
+        for var_data in template_data.get("variables", []):
+            variables.append(TemplateVariable(**var_data))
+
+        # Create template
+        template = CodeTemplate(
+            id=template_data["id"],
+            name=template_data["name"],
+            description=template_data["description"],
+            language=TemplateLanguage(template_data["language"]),
+            category=TemplateCategory(template_data["category"]),
+            content=template_data["content"],
+            variables=variables,
+            tags=template_data.get("tags", []),
+            author=current_user.username
+        )
+
+        manager = get_template_manager()
+        created = manager.create_template(template)
+
+        return {
+            "id": created.id,
+            "message": "Template created successfully"
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        get_logger().error(f"Failed to create template: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/templates/{template_id}")
+async def update_template(
+    template_id: str,
+    updates: Dict,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Update an existing template."""
+    try:
+        manager = get_template_manager()
+        updated = manager.update_template(template_id, updates)
+
+        return {
+            "id": updated.id,
+            "message": "Template updated successfully"
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        get_logger().error(f"Failed to update template: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/templates/{template_id}")
+async def delete_template(
+    template_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Delete a template."""
+    try:
+        manager = get_template_manager()
+        success = manager.delete_template(template_id)
+
+        if not success:
+            raise HTTPException(status_code=404, detail="Template not found")
+
+        return {"message": "Template deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to delete template: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/templates/search")
+async def search_templates(
+    query: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Search templates by name, description, or tags."""
+    try:
+        manager = get_template_manager()
+        results = manager.search_templates(query)
+
+        return {
+            "results": [
+                {
+                    "id": t.id,
+                    "name": t.name,
+                    "description": t.description,
+                    "language": t.language.value,
+                    "category": t.category.value,
+                    "tags": t.tags,
+                    "usage_count": t.usage_count
+                }
+                for t in results
+            ],
+            "total": len(results)
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to search templates: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/templates/{template_id}/instantiate")
+async def instantiate_template(
+    template_id: str,
+    variables: Dict[str, any],
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Instantiate a template with variables."""
+    try:
+        manager = get_template_manager()
+        instance = manager.instantiate_template(template_id, variables)
+
+        return {
+            "template_id": instance.template_id,
+            "content": instance.content,
+            "variables": instance.variables,
+            "created_at": instance.created_at
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        get_logger().error(f"Failed to instantiate template: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/templates/{template_id}/preview")
+async def preview_template(
+    template_id: str,
+    variables: Dict[str, any],
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Preview template rendering without saving."""
+    try:
+        manager = get_template_manager()
+        content = manager.preview_template(template_id, variables)
+
+        return {
+            "template_id": template_id,
+            "content": content
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        get_logger().error(f"Failed to preview template: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
