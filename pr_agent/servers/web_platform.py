@@ -957,6 +957,56 @@ async def get_config(current_user: User = Depends(get_current_user_or_api_key)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.put("/api/config")
+async def update_config(
+    config_update: Dict,
+    current_user: User = Depends(require_role("admin")),
+    req: Request = None
+):
+    """Update configuration (admin only)"""
+    try:
+        # Update configuration file
+        import toml
+        config_path = os.path.join(os.path.dirname(__file__), "..", "settings", "configuration.toml")
+
+        # Read current config
+        with open(config_path, 'r') as f:
+            current_config = toml.load(f)
+
+        # Merge updates
+        for section, values in config_update.items():
+            if section not in current_config:
+                current_config[section] = {}
+            current_config[section].update(values)
+
+        # Write updated config
+        with open(config_path, 'w') as f:
+            toml.dump(current_config, f)
+
+        structured_logger.info("Configuration updated", user=current_user.username, sections=list(config_update.keys()))
+
+        # Log audit event
+        audit_logger.log(
+            event_type=AuditEventType.CONFIG_UPDATED,
+            severity=AuditSeverity.INFO,
+            user_id=str(current_user.id) if hasattr(current_user, 'id') else None,
+            username=current_user.username,
+            ip_address=req.client.host if req and req.client else None,
+            action="update",
+            result="success",
+            message=f"Configuration updated: {', '.join(config_update.keys())}"
+        )
+
+        # Trigger reload if hot reload is enabled
+        if hot_reload_manager:
+            hot_reload_manager.watcher._trigger_reload()
+
+        return {"message": "Configuration updated successfully"}
+    except Exception as e:
+        get_logger().error(f"Failed to update config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/config/reload")
 async def reload_config(current_user: User = Depends(require_role("admin")), req: Request = None):
     """Manually trigger configuration reload (admin only)"""

@@ -41,6 +41,7 @@ class AuditEventType(str, Enum):
 
     # Configuration events
     CONFIG_CHANGED = "config_changed"
+    CONFIG_UPDATED = "config_updated"
     CONFIG_RELOADED = "config_reloaded"
 
     # Organization events

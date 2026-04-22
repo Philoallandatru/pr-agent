@@ -7,6 +7,7 @@ import Dashboard from './pages/Dashboard';
 import Repositories from './pages/Repositories';
 import Reviews from './pages/Reviews';
 import Prompts from './pages/Prompts';
+import Config from './pages/Config';
 import Login from './pages/Login';
 
 function App() {
@@ -26,6 +27,7 @@ function App() {
                     <Route path="/repositories" element={<Repositories />} />
                     <Route path="/reviews" element={<Reviews />} />
                     <Route path="/prompts" element={<Prompts />} />
+                    <Route path="/config" element={<Config />} />
                   </Routes>
                 </Layout>
               </Box>

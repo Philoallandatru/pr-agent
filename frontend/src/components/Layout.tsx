@@ -24,6 +24,7 @@ import {
   Folder as FolderIcon,
   History as HistoryIcon,
   Edit as EditIcon,
+  Settings as SettingsIcon,
   AccountCircle,
   Logout,
 } from '@mui/icons-material';
@@ -36,6 +37,7 @@ const menuItems = [
   { text: 'Repositories', icon: <FolderIcon />, path: '/repositories' },
   { text: 'Review History', icon: <HistoryIcon />, path: '/reviews' },
   { text: 'Prompt Editor', icon: <EditIcon />, path: '/prompts' },
+  { text: 'Configuration', icon: <SettingsIcon />, path: '/config' },
 ];
 
 interface LayoutProps {
