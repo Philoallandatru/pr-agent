@@ -81,6 +81,12 @@ from pr_agent.metrics import (
     MetricType,
     Severity as MetricSeverity,
 )
+from pr_agent.ai_assistant import (
+    get_assistant,
+    AssistantCapability,
+    MessageRole,
+    ConfidenceLevel,
+)
 from strawberry.fastapi import GraphQLRouter
 from pr_agent.graphql import schema
 
@@ -7698,6 +7704,250 @@ async def download_report(
     except HTTPException:
         raise
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# AI Assistant API
+# ============================================================================
+
+class ChatRequest(BaseModel):
+    """Chat request."""
+    conversation_id: str
+    message: str
+    context: Optional[Dict] = None
+
+
+class ChatResponse(BaseModel):
+    """Chat response."""
+    content: str
+    confidence: str
+    suggestions: List[str] = []
+    code_snippets: List[Dict[str, str]] = []
+
+
+class CodeExplanationRequest(BaseModel):
+    """Code explanation request."""
+    code: str
+    language: str = "python"
+    context: Optional[Dict] = None
+
+
+class CodeExplanationResponse(BaseModel):
+    """Code explanation response."""
+    explanation: str
+    key_concepts: List[str]
+    complexity_analysis: Dict
+    potential_issues: List[Dict]
+    improvement_suggestions: List[str]
+
+
+class ReviewOptimizationRequest(BaseModel):
+    """Review optimization request."""
+    comment: str
+    context: Optional[Dict] = None
+
+
+class ReviewOptimizationResponse(BaseModel):
+    """Review optimization response."""
+    original_comment: str
+    optimized_comment: str
+    improvements: List[str]
+    tone_score: float
+    clarity_score: float
+
+
+class ReviewSuggestionsRequest(BaseModel):
+    """Review suggestions request."""
+    code: str
+    file_path: str
+    context: Optional[Dict] = None
+
+
+@app.post("/api/assistant/chat", response_model=ChatResponse)
+async def assistant_chat(
+    request: ChatRequest,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Chat with AI assistant."""
+    try:
+        assistant = get_assistant()
+        response = assistant.chat(
+            request.conversation_id,
+            request.message,
+            request.context
+        )
+
+        audit_logger.log_event(
+            AuditEventType.AI_ASSISTANT_CHAT,
+            user_id=current_user.username,
+            severity=AuditSeverity.INFO,
+            details={
+                "conversation_id": request.conversation_id,
+                "message_length": len(request.message)
+            }
+        )
+
+        return ChatResponse(
+            content=response.content,
+            confidence=response.confidence.value,
+            suggestions=response.suggestions,
+            code_snippets=response.code_snippets
+        )
+    except Exception as e:
+        structured_logger.error("AI assistant chat failed", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/assistant/explain", response_model=CodeExplanationResponse)
+async def explain_code(
+    request: CodeExplanationRequest,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Explain code snippet."""
+    try:
+        assistant = get_assistant()
+        explanation = assistant.explain_code(
+            request.code,
+            request.language,
+            request.context
+        )
+
+        audit_logger.log_event(
+            AuditEventType.CODE_EXPLANATION,
+            user_id=current_user.username,
+            severity=AuditSeverity.INFO,
+            details={
+                "language": request.language,
+                "code_length": len(request.code)
+            }
+        )
+
+        return CodeExplanationResponse(
+            explanation=explanation.explanation,
+            key_concepts=explanation.key_concepts,
+            complexity_analysis=explanation.complexity_analysis,
+            potential_issues=explanation.potential_issues,
+            improvement_suggestions=explanation.improvement_suggestions
+        )
+    except Exception as e:
+        structured_logger.error("Code explanation failed", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/assistant/optimize", response_model=ReviewOptimizationResponse)
+async def optimize_review_comment(
+    request: ReviewOptimizationRequest,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Optimize review comment."""
+    try:
+        assistant = get_assistant()
+        optimization = assistant.optimize_review_comment(
+            request.comment,
+            request.context
+        )
+
+        audit_logger.log_event(
+            AuditEventType.REVIEW_OPTIMIZATION,
+            user_id=current_user.username,
+            severity=AuditSeverity.INFO,
+            details={
+                "original_length": len(request.comment),
+                "optimized_length": len(optimization.optimized_comment)
+            }
+        )
+
+        return ReviewOptimizationResponse(
+            original_comment=optimization.original_comment,
+            optimized_comment=optimization.optimized_comment,
+            improvements=optimization.improvements,
+            tone_score=optimization.tone_score,
+            clarity_score=optimization.clarity_score
+        )
+    except Exception as e:
+        structured_logger.error("Review optimization failed", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/assistant/suggest")
+async def suggest_review_points(
+    request: ReviewSuggestionsRequest,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Suggest review points for code."""
+    try:
+        assistant = get_assistant()
+        suggestions = assistant.suggest_review_points(
+            request.code,
+            request.file_path,
+            request.context
+        )
+
+        audit_logger.log_event(
+            AuditEventType.REVIEW_SUGGESTIONS,
+            user_id=current_user.username,
+            severity=AuditSeverity.INFO,
+            details={
+                "file_path": request.file_path,
+                "suggestions_count": len(suggestions)
+            }
+        )
+
+        return {"suggestions": suggestions}
+    except Exception as e:
+        structured_logger.error("Review suggestions failed", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/assistant/conversations/{conversation_id}/history")
+async def get_conversation_history(
+    conversation_id: str,
+    limit: Optional[int] = Query(None, ge=1, le=100),
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get conversation history."""
+    try:
+        assistant = get_assistant()
+        messages = assistant.get_conversation_history(conversation_id, limit)
+
+        return {
+            "conversation_id": conversation_id,
+            "messages": [
+                {
+                    "role": msg.role.value,
+                    "content": msg.content,
+                    "timestamp": msg.timestamp.isoformat(),
+                    "metadata": msg.metadata
+                }
+                for msg in messages
+            ]
+        }
+    except Exception as e:
+        structured_logger.error("Failed to get conversation history", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/assistant/conversations/{conversation_id}")
+async def clear_conversation(
+    conversation_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Clear conversation history."""
+    try:
+        assistant = get_assistant()
+        assistant.clear_conversation(conversation_id)
+
+        audit_logger.log_event(
+            AuditEventType.CONVERSATION_CLEARED,
+            user_id=current_user.username,
+            severity=AuditSeverity.INFO,
+            details={"conversation_id": conversation_id}
+        )
+
+        return {"message": "Conversation cleared successfully"}
+    except Exception as e:
+        structured_logger.error("Failed to clear conversation", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
