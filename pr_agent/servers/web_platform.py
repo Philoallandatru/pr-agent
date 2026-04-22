@@ -3621,5 +3621,247 @@ async def get_metric_types(
     }
 
 
+# ============================================================================
+# Workflow API
+# ============================================================================
+
+from pr_agent.workflow import (
+    ReviewPipeline,
+    ReviewConfig,
+    ReviewStage,
+    format_review_report
+)
+
+
+class WorkflowRunRequest(BaseModel):
+    """Request to run review workflow."""
+    file_paths: Optional[List[str]] = None
+    directory: Optional[str] = None
+    patterns: Optional[List[str]] = None
+    config: Optional[Dict[str, Any]] = None
+
+
+class WorkflowConfigRequest(BaseModel):
+    """Request to configure workflow."""
+    enabled_stages: Optional[List[str]] = None
+    max_complexity: Optional[int] = None
+    min_maintainability: Optional[float] = None
+    max_file_lines: Optional[int] = None
+    auto_format: Optional[bool] = None
+    enable_ai: Optional[bool] = None
+    fail_on_critical: Optional[bool] = None
+    fail_on_high: Optional[bool] = None
+
+
+@app.post("/api/workflow/run")
+async def run_review_workflow(
+    request: WorkflowRunRequest,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """
+    Run automated code review workflow.
+
+    Can review specific files or an entire directory.
+    """
+    try:
+        # Build config
+        config = ReviewConfig()
+
+        if request.config:
+            if "enabled_stages" in request.config:
+                config.enabled_stages = {
+                    ReviewStage(s) for s in request.config["enabled_stages"]
+                }
+            if "max_complexity" in request.config:
+                config.max_complexity = request.config["max_complexity"]
+            if "min_maintainability" in request.config:
+                config.min_maintainability = request.config["min_maintainability"]
+            if "max_file_lines" in request.config:
+                config.max_file_lines = request.config["max_file_lines"]
+            if "auto_format" in request.config:
+                config.auto_format = request.config["auto_format"]
+            if "enable_ai" in request.config:
+                config.enable_ai = request.config["enable_ai"]
+            if "fail_on_critical" in request.config:
+                config.fail_on_critical = request.config["fail_on_critical"]
+            if "fail_on_high" in request.config:
+                config.fail_on_high = request.config["fail_on_high"]
+
+        # Create pipeline
+        pipeline = ReviewPipeline(config)
+
+        # Run review
+        if request.file_paths:
+            result = await pipeline.review_files(request.file_paths)
+        elif request.directory:
+            result = await pipeline.review_directory(
+                request.directory,
+                patterns=request.patterns
+            )
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Either file_paths or directory must be provided"
+            )
+
+        # Format response
+        return {
+            "success": result.success,
+            "start_time": result.start_time.isoformat(),
+            "end_time": result.end_time.isoformat(),
+            "duration_seconds": result.total_duration_seconds,
+            "summary": result.summary,
+            "stages": [
+                {
+                    "stage": s.stage.value,
+                    "success": s.success,
+                    "duration_seconds": s.duration_seconds,
+                    "issue_count": len(s.issues),
+                    "error": s.error
+                }
+                for s in result.stages
+            ],
+            "issues": [
+                {
+                    "severity": i.severity.value,
+                    "category": i.category,
+                    "message": i.message,
+                    "file_path": i.file_path,
+                    "line_number": i.line_number,
+                    "suggestion": i.suggestion,
+                    "auto_fixable": i.auto_fixable
+                }
+                for i in result.issues
+            ]
+        }
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        get_logger().error(f"Failed to run workflow: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/workflow/report")
+async def generate_workflow_report(
+    request: WorkflowRunRequest,
+    format: str = "markdown",
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """
+    Run workflow and generate formatted report.
+
+    Supports text, markdown, and json formats.
+    """
+    try:
+        # Build config
+        config = ReviewConfig()
+        if request.config:
+            if "enabled_stages" in request.config:
+                config.enabled_stages = {
+                    ReviewStage(s) for s in request.config["enabled_stages"]
+                }
+
+        # Create pipeline
+        pipeline = ReviewPipeline(config)
+
+        # Run review
+        if request.file_paths:
+            result = await pipeline.review_files(request.file_paths)
+        elif request.directory:
+            result = await pipeline.review_directory(
+                request.directory,
+                patterns=request.patterns
+            )
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Either file_paths or directory must be provided"
+            )
+
+        # Generate report
+        report = format_review_report(result, format=format)
+
+        return {
+            "format": format,
+            "report": report,
+            "success": result.success,
+            "timestamp": result.end_time.isoformat()
+        }
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        get_logger().error(f"Failed to generate workflow report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/workflow/stages")
+async def get_workflow_stages(
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get available workflow stages."""
+    return {
+        "stages": [s.value for s in ReviewStage],
+        "default_stages": [
+            ReviewStage.INITIALIZATION.value,
+            ReviewStage.QUALITY_GATE.value,
+            ReviewStage.FORMATTING.value,
+            ReviewStage.METRICS.value,
+            ReviewStage.SECURITY.value,
+            ReviewStage.DOCUMENTATION.value,
+            ReviewStage.FINALIZATION.value
+        ]
+    }
+
+
+@app.post("/api/workflow/config")
+async def configure_workflow(
+    request: WorkflowConfigRequest,
+    current_user: User = Depends(require_role("admin"))
+):
+    """Configure default workflow settings (admin only)."""
+    try:
+        config = ReviewConfig()
+
+        if request.enabled_stages is not None:
+            config.enabled_stages = {ReviewStage(s) for s in request.enabled_stages}
+        if request.max_complexity is not None:
+            config.max_complexity = request.max_complexity
+        if request.min_maintainability is not None:
+            config.min_maintainability = request.min_maintainability
+        if request.max_file_lines is not None:
+            config.max_file_lines = request.max_file_lines
+        if request.auto_format is not None:
+            config.auto_format = request.auto_format
+        if request.enable_ai is not None:
+            config.enable_ai = request.enable_ai
+        if request.fail_on_critical is not None:
+            config.fail_on_critical = request.fail_on_critical
+        if request.fail_on_high is not None:
+            config.fail_on_high = request.fail_on_high
+
+        # TODO: Persist configuration to database or file
+
+        return {
+            "status": "success",
+            "message": "Workflow configuration updated",
+            "config": {
+                "enabled_stages": [s.value for s in config.enabled_stages],
+                "max_complexity": config.max_complexity,
+                "min_maintainability": config.min_maintainability,
+                "max_file_lines": config.max_file_lines,
+                "auto_format": config.auto_format,
+                "enable_ai": config.enable_ai,
+                "fail_on_critical": config.fail_on_critical,
+                "fail_on_high": config.fail_on_high
+            }
+        }
+
+    except Exception as e:
+        get_logger().error(f"Failed to configure workflow: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     start()
