@@ -41,6 +41,8 @@ from pr_agent.plugins import PluginManager
 from pr_agent.models import get_model_manager, ModelType, ModelStatus
 from pr_agent.quality import get_quality_gate, QualityGateConfig, CheckType, Severity
 from pr_agent.suggestions import get_suggestion_engine, SuggestionType, SuggestionPriority
+from pr_agent.collaboration import get_collaboration_manager, User as CollabUser, UserStatus
+from pr_agent.collaboration.websocket import handle_collaboration_websocket
 from strawberry.fastapi import GraphQLRouter
 from pr_agent.graphql import schema
 
@@ -2085,6 +2087,152 @@ async def get_suggestion_types(
             for t in SuggestionType
         ]
     }
+
+
+# Real-time Collaboration endpoints
+class RoomCreateRequest(BaseModel):
+    pr_number: int
+    repository: str
+
+
+@app.post("/api/collaboration/rooms")
+async def create_collaboration_room(
+    request: RoomCreateRequest,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Create a new collaboration room for a PR."""
+    try:
+        manager = get_collaboration_manager()
+        room = manager.create_room(request.pr_number, request.repository)
+
+        get_audit_logger().log(
+            event_type=AuditEventType.SYSTEM_EVENT,
+            user_id=current_user.username,
+            severity=AuditSeverity.INFO,
+            details={
+                "action": "create_collaboration_room",
+                "room_id": room.room_id,
+                "pr_number": request.pr_number,
+                "repository": request.repository
+            }
+        )
+
+        return {
+            "room_id": room.room_id,
+            "pr_number": room.pr_number,
+            "repository": room.repository,
+            "created_at": room.created_at
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to create collaboration room: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/collaboration/rooms/{room_id}")
+async def get_collaboration_room(
+    room_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get collaboration room details."""
+    try:
+        manager = get_collaboration_manager()
+        room = manager.get_room(room_id)
+
+        if not room:
+            raise HTTPException(status_code=404, detail="Room not found")
+
+        return {
+            "room_id": room.room_id,
+            "pr_number": room.pr_number,
+            "repository": room.repository,
+            "created_at": room.created_at,
+            "active_users": [
+                {
+                    "id": u.id,
+                    "name": u.name,
+                    "email": u.email,
+                    "status": u.status.value,
+                    "current_file": u.current_file,
+                    "cursor_position": u.cursor_position
+                }
+                for u in room.get_active_users()
+            ],
+            "comment_count": len(room.comments),
+            "annotation_count": len(room.annotations)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to get collaboration room: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/collaboration/rooms/{room_id}/comments")
+async def get_room_comments(
+    room_id: str,
+    file_path: Optional[str] = None,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get comments in a collaboration room."""
+    try:
+        manager = get_collaboration_manager()
+        room = manager.get_room(room_id)
+
+        if not room:
+            raise HTTPException(status_code=404, detail="Room not found")
+
+        if file_path:
+            comments = room.get_comments_for_file(file_path)
+        else:
+            comments = list(room.comments.values())
+
+        return {
+            "comments": [
+                {
+                    "id": c.id,
+                    "user_id": c.user_id,
+                    "file_path": c.file_path,
+                    "line_number": c.line_number,
+                    "content": c.content,
+                    "created_at": c.created_at,
+                    "updated_at": c.updated_at,
+                    "resolved": c.resolved,
+                    "replies": [
+                        {
+                            "id": r.id,
+                            "user_id": r.user_id,
+                            "content": r.content,
+                            "created_at": r.created_at
+                        }
+                        for r in c.replies
+                    ]
+                }
+                for c in comments
+            ]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to get room comments: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.websocket("/ws/collaboration/{room_id}")
+async def collaboration_websocket(
+    websocket: WebSocket,
+    room_id: str,
+    user_id: str = Query(...),
+    user_name: str = Query(...),
+    user_email: str = Query(...)
+):
+    """WebSocket endpoint for real-time collaboration."""
+    await handle_collaboration_websocket(
+        websocket,
+        room_id,
+        user_id,
+        user_name,
+        user_email
+    )
 
 
 if __name__ == "__main__":
