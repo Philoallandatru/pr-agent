@@ -5342,5 +5342,270 @@ async def import_review_templates(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ============================================================================
+# Assignment System API
+# ============================================================================
+
+from pr_agent.assignment import (
+    AssignmentEngine,
+    Reviewer,
+    Assignment,
+    AssignmentStrategy,
+    ReviewerStatus,
+    get_assignment_engine
+)
+
+
+@app.post("/api/reviewers")
+async def create_reviewer(
+    reviewer: Dict[str, Any],
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Register a new reviewer."""
+    try:
+        engine = get_assignment_engine()
+
+        reviewer_obj = Reviewer(
+            reviewer_id=reviewer["reviewer_id"],
+            name=reviewer["name"],
+            email=reviewer["email"],
+            skills=reviewer.get("skills", []),
+            file_patterns=reviewer.get("file_patterns", []),
+            max_reviews=reviewer.get("max_reviews", 5),
+            priority=reviewer.get("priority", 1),
+            metadata=reviewer.get("metadata", {})
+        )
+
+        engine.register_reviewer(reviewer_obj)
+
+        return {
+            "message": "Reviewer registered successfully",
+            "reviewer": reviewer_obj.to_dict()
+        }
+
+    except Exception as e:
+        get_logger().error(f"Failed to register reviewer: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/reviewers")
+async def list_reviewers(
+    status: Optional[str] = None,
+    available_only: bool = False,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """List all reviewers."""
+    try:
+        engine = get_assignment_engine()
+
+        reviewer_status = ReviewerStatus(status) if status else None
+        reviewers = engine.list_reviewers(
+            status=reviewer_status,
+            available_only=available_only
+        )
+
+        return {
+            "reviewers": [r.to_dict() for r in reviewers],
+            "count": len(reviewers)
+        }
+
+    except Exception as e:
+        get_logger().error(f"Failed to list reviewers: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/reviewers/{reviewer_id}")
+async def get_reviewer(
+    reviewer_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get a specific reviewer."""
+    try:
+        engine = get_assignment_engine()
+        reviewer = engine.get_reviewer(reviewer_id)
+
+        if not reviewer:
+            raise HTTPException(status_code=404, detail="Reviewer not found")
+
+        return reviewer.to_dict()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to get reviewer: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/reviewers/{reviewer_id}")
+async def delete_reviewer(
+    reviewer_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Unregister a reviewer."""
+    try:
+        engine = get_assignment_engine()
+
+        if not engine.unregister_reviewer(reviewer_id):
+            raise HTTPException(status_code=404, detail="Reviewer not found")
+
+        return {"message": "Reviewer unregistered successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to unregister reviewer: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/reviewers/{reviewer_id}/status")
+async def update_reviewer_status(
+    reviewer_id: str,
+    status: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Update reviewer status."""
+    try:
+        engine = get_assignment_engine()
+        reviewer_status = ReviewerStatus(status)
+
+        if not engine.update_reviewer_status(reviewer_id, reviewer_status):
+            raise HTTPException(status_code=404, detail="Reviewer not found")
+
+        return {"message": "Reviewer status updated successfully"}
+
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid status: {e}")
+    except Exception as e:
+        get_logger().error(f"Failed to update reviewer status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/assignments")
+async def assign_reviewers(
+    request: Dict[str, Any],
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Assign reviewers to a pull request."""
+    try:
+        engine = get_assignment_engine()
+
+        strategy = AssignmentStrategy(request.get("strategy", "load_balanced"))
+
+        assignments = engine.assign_reviewers(
+            pull_request_id=request["pull_request_id"],
+            repository=request["repository"],
+            files=request["files"],
+            num_reviewers=request.get("num_reviewers", 2),
+            strategy=strategy,
+            required_skills=request.get("required_skills")
+        )
+
+        return {
+            "message": "Reviewers assigned successfully",
+            "assignments": [a.to_dict() for a in assignments],
+            "count": len(assignments)
+        }
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        get_logger().error(f"Failed to assign reviewers: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/assignments")
+async def list_assignments(
+    reviewer_id: Optional[str] = None,
+    repository: Optional[str] = None,
+    completed: Optional[bool] = None,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """List assignments."""
+    try:
+        engine = get_assignment_engine()
+
+        assignments = engine.list_assignments(
+            reviewer_id=reviewer_id,
+            repository=repository,
+            completed=completed
+        )
+
+        return {
+            "assignments": [a.to_dict() for a in assignments],
+            "count": len(assignments)
+        }
+
+    except Exception as e:
+        get_logger().error(f"Failed to list assignments: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/assignments/{assignment_id}")
+async def get_assignment(
+    assignment_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get a specific assignment."""
+    try:
+        engine = get_assignment_engine()
+        assignment = engine.get_assignment(assignment_id)
+
+        if not assignment:
+            raise HTTPException(status_code=404, detail="Assignment not found")
+
+        return assignment.to_dict()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to get assignment: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/assignments/{assignment_id}/complete")
+async def complete_assignment(
+    assignment_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Mark an assignment as completed."""
+    try:
+        engine = get_assignment_engine()
+
+        if not engine.complete_assignment(assignment_id):
+            raise HTTPException(status_code=404, detail="Assignment not found")
+
+        return {"message": "Assignment completed successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to complete assignment: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/reviewers/{reviewer_id}/stats")
+async def get_reviewer_stats(
+    reviewer_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get statistics for a reviewer."""
+    try:
+        engine = get_assignment_engine()
+        stats = engine.get_reviewer_stats(reviewer_id)
+
+        if not stats:
+            raise HTTPException(status_code=404, detail="Reviewer not found")
+
+        return stats
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to get reviewer stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     start()
