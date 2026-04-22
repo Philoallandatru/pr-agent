@@ -50,6 +50,12 @@ from pr_agent.dependency_graph import (
     get_dependency_visualizer,
     NodeType,
 )
+from pr_agent.code_search import (
+    get_search_engine,
+    get_code_navigator,
+    SearchType,
+    SymbolType,
+)
 from strawberry.fastapi import GraphQLRouter
 from pr_agent.graphql import schema
 
@@ -2634,6 +2640,194 @@ async def analyze_impact(
         }
     except Exception as e:
         get_logger().error(f"Failed to analyze impact: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Code Search and Navigation Endpoints
+
+@app.post("/api/code-search/index")
+async def index_codebase(
+    directory: str = Body(...),
+    extensions: Optional[List[str]] = Body(None),
+    exclude_patterns: Optional[List[str]] = Body(None),
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Index codebase for searching."""
+    try:
+        search_engine = get_search_engine(directory)
+        search_engine.index_directory(extensions, exclude_patterns)
+
+        # Get statistics
+        total_files = len(search_engine.file_cache)
+        total_symbols = sum(len(symbols) for symbols in search_engine.symbol_index.values())
+
+        return {
+            "status": "indexed",
+            "total_files": total_files,
+            "total_symbols": total_symbols
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to index codebase: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/code-search/search")
+async def search_code(
+    query: str = Body(...),
+    search_type: str = Body("full_text"),
+    case_sensitive: bool = Body(False),
+    whole_word: bool = Body(False),
+    max_results: int = Body(100),
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Search code."""
+    try:
+        search_engine = get_search_engine()
+
+        if search_type == "full_text":
+            results = search_engine.search_full_text(
+                query,
+                case_sensitive=case_sensitive,
+                whole_word=whole_word,
+                max_results=max_results
+            )
+        elif search_type == "regex":
+            results = search_engine.search_regex(
+                query,
+                case_sensitive=case_sensitive,
+                max_results=max_results
+            )
+        else:
+            raise HTTPException(status_code=400, detail="Invalid search type")
+
+        return {
+            "query": query,
+            "search_type": search_type,
+            "result_count": len(results),
+            "results": [r.to_dict() for r in results]
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to search code: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/code-search/symbols")
+async def search_symbols(
+    symbol_name: str = Body(...),
+    symbol_type: Optional[str] = Body(None),
+    fuzzy: bool = Body(False),
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Search for symbols."""
+    try:
+        search_engine = get_search_engine()
+
+        # Convert symbol type string to enum
+        symbol_type_enum = None
+        if symbol_type:
+            symbol_type_enum = SymbolType[symbol_type.upper()]
+
+        symbols = search_engine.search_symbol(
+            symbol_name,
+            symbol_type=symbol_type_enum,
+            fuzzy=fuzzy
+        )
+
+        return {
+            "symbol_name": symbol_name,
+            "result_count": len(symbols),
+            "symbols": [s.to_dict() for s in symbols]
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to search symbols: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/code-search/definition")
+async def find_definition(
+    symbol_name: str = Body(...),
+    file_path: str = Body(...),
+    line_number: int = Body(...),
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Find symbol definition."""
+    try:
+        search_engine = get_search_engine()
+        symbol = search_engine.find_definition(symbol_name, file_path, line_number)
+
+        if symbol:
+            return {"found": True, "symbol": symbol.to_dict()}
+        else:
+            return {"found": False, "symbol": None}
+    except Exception as e:
+        get_logger().error(f"Failed to find definition: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/code-search/references")
+async def find_references(
+    symbol_name: str = Body(...),
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Find all references to a symbol."""
+    try:
+        search_engine = get_search_engine()
+        references = search_engine.find_references(symbol_name)
+
+        return {
+            "symbol_name": symbol_name,
+            "reference_count": len(references),
+            "references": [r.to_dict() for r in references]
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to find references: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/code-search/outline/{file_path:path}")
+async def get_file_outline(
+    file_path: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get file outline."""
+    try:
+        navigator = get_code_navigator()
+        outline = navigator.get_file_outline(file_path)
+
+        # Convert symbols to dicts
+        result = {}
+        for key, symbols in outline.items():
+            result[key] = [s.to_dict() for s in symbols]
+
+        return {
+            "file_path": file_path,
+            "outline": result
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to get file outline: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/code-search/workspace-symbols")
+async def get_workspace_symbols(
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get all workspace symbols."""
+    try:
+        navigator = get_code_navigator()
+        symbols = navigator.get_workspace_symbols()
+
+        # Convert to dicts
+        result = {}
+        for key, symbol_list in symbols.items():
+            result[key] = [s.to_dict() for s in symbol_list]
+
+        return {
+            "symbols": result,
+            "total_count": sum(len(v) for v in symbols.values())
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to get workspace symbols: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
