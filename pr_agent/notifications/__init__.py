@@ -1,23 +1,23 @@
-"""
-Notification system for PR-Agent.
+"""Notification system for code reviews."""
 
-Supports multiple notification channels for PR review events.
-"""
-
-from pr_agent.notifications.webhook import (
-    webhook_notifier,
-    notify_review_started,
-    notify_review_completed,
-    notify_review_failed,
-    NotificationEvent,
+from pr_agent.notifications.notification_system import (
+    NotificationSystem,
     NotificationChannel,
+    NotificationEvent,
+    NotificationPriority,
+    NotificationTemplate,
+    NotificationPreference,
+    Notification,
+    get_notification_system
 )
 
 __all__ = [
-    "webhook_notifier",
-    "notify_review_started",
-    "notify_review_completed",
-    "notify_review_failed",
-    "NotificationEvent",
+    "NotificationSystem",
     "NotificationChannel",
+    "NotificationEvent",
+    "NotificationPriority",
+    "NotificationTemplate",
+    "NotificationPreference",
+    "Notification",
+    "get_notification_system"
 ]

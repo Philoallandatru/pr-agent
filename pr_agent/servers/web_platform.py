@@ -5607,5 +5607,173 @@ async def get_reviewer_stats(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ============================================================================
+# Notification System API
+# ============================================================================
+
+from pr_agent.notifications import (
+    NotificationSystem,
+    NotificationChannel,
+    NotificationEvent,
+    NotificationPriority,
+    NotificationTemplate,
+    NotificationPreference,
+    get_notification_system
+)
+
+
+@app.post("/api/notifications/templates")
+async def create_notification_template(
+    template: Dict[str, Any],
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Register a notification template."""
+    try:
+        system = get_notification_system()
+
+        template_obj = NotificationTemplate(
+            template_id=template["template_id"],
+            event=NotificationEvent(template["event"]),
+            channel=NotificationChannel(template["channel"]),
+            subject_template=template["subject_template"],
+            body_template=template["body_template"],
+            metadata=template.get("metadata", {})
+        )
+
+        system.register_template(template_obj)
+
+        return {"message": "Template registered successfully"}
+
+    except Exception as e:
+        get_logger().error(f"Failed to register template: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/notifications/preferences")
+async def set_notification_preference(
+    preference: Dict[str, Any],
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Set user notification preferences."""
+    try:
+        system = get_notification_system()
+
+        pref_obj = NotificationPreference(
+            user_id=preference["user_id"],
+            email=preference.get("email"),
+            slack_id=preference.get("slack_id"),
+            dingtalk_id=preference.get("dingtalk_id"),
+            wecom_id=preference.get("wecom_id"),
+            enabled_channels=[NotificationChannel(c) for c in preference.get("enabled_channels", [])],
+            enabled_events=[NotificationEvent(e) for e in preference.get("enabled_events", [])],
+            quiet_hours_start=preference.get("quiet_hours_start"),
+            quiet_hours_end=preference.get("quiet_hours_end"),
+            metadata=preference.get("metadata", {})
+        )
+
+        system.set_preference(pref_obj)
+
+        return {"message": "Preferences saved successfully"}
+
+    except Exception as e:
+        get_logger().error(f"Failed to set preferences: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/notifications/preferences/{user_id}")
+async def get_notification_preference(
+    user_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get user notification preferences."""
+    try:
+        system = get_notification_system()
+        pref = system.get_preference(user_id)
+
+        if not pref:
+            raise HTTPException(status_code=404, detail="Preferences not found")
+
+        return {
+            "user_id": pref.user_id,
+            "email": pref.email,
+            "slack_id": pref.slack_id,
+            "dingtalk_id": pref.dingtalk_id,
+            "wecom_id": pref.wecom_id,
+            "enabled_channels": [c.value for c in pref.enabled_channels],
+            "enabled_events": [e.value for e in pref.enabled_events],
+            "quiet_hours_start": pref.quiet_hours_start,
+            "quiet_hours_end": pref.quiet_hours_end,
+            "metadata": pref.metadata
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to get preferences: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/notifications/send")
+async def send_notification(
+    request: Dict[str, Any],
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Send notifications to recipients."""
+    try:
+        system = get_notification_system()
+
+        event = NotificationEvent(request["event"])
+        recipients = request["recipients"]
+        context = request["context"]
+        priority = NotificationPriority(request.get("priority", "normal"))
+        channels = [NotificationChannel(c) for c in request.get("channels", [])] if request.get("channels") else None
+
+        notifications = system.notify(
+            event=event,
+            recipients=recipients,
+            context=context,
+            priority=priority,
+            channels=channels
+        )
+
+        return {
+            "message": "Notifications sent",
+            "count": len(notifications),
+            "notifications": [n.to_dict() for n in notifications]
+        }
+
+    except Exception as e:
+        get_logger().error(f"Failed to send notifications: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/notifications/history")
+async def get_notification_history(
+    user_id: Optional[str] = None,
+    event: Optional[str] = None,
+    limit: int = 100,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get notification history."""
+    try:
+        system = get_notification_system()
+
+        event_enum = NotificationEvent(event) if event else None
+        history = system.get_notification_history(
+            user_id=user_id,
+            event=event_enum,
+            limit=limit
+        )
+
+        return {
+            "notifications": [n.to_dict() for n in history],
+            "count": len(history)
+        }
+
+    except Exception as e:
+        get_logger().error(f"Failed to get notification history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     start()
