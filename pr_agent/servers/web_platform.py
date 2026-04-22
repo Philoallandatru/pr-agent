@@ -3885,6 +3885,15 @@ from pr_agent.scheduler import (
     ReviewPriority,
     TriggerType,
 )
+from pr_agent.reports import (
+    ReportGenerator,
+    ReportFormat,
+    ReportSection,
+    QualityMetrics,
+    TrendData,
+    Issue,
+    Recommendation,
+)
 
 
 class ImpactAnalysisRequest(BaseModel):
@@ -4597,6 +4606,194 @@ async def remove_trigger(
     except Exception as e:
         get_logger().error(f"Failed to remove trigger: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Report Generation API
+# ============================================================================
+
+# Global report generator instance
+_report_generator = None
+
+
+def get_report_generator() -> ReportGenerator:
+    """Get or create report generator instance."""
+    global _report_generator
+    if _report_generator is None:
+        from pathlib import Path
+        output_dir = Path.home() / ".pr_agent" / "reports"
+        _report_generator = ReportGenerator(output_dir=output_dir)
+    return _report_generator
+
+
+@app.post("/api/reports/generate")
+async def generate_report(
+    repository: str,
+    metrics: Dict[str, Any],
+    trends: List[Dict[str, Any]] = [],
+    issues: List[Dict[str, Any]] = [],
+    recommendations: List[Dict[str, Any]] = [],
+    format: str = "html",
+    sections: Optional[List[str]] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """
+    Generate a quality report.
+
+    Args:
+        repository: Repository identifier
+        metrics: Quality metrics dictionary
+        trends: List of trend data points
+        issues: List of issues found
+        recommendations: List of recommendations
+        format: Output format (json, markdown, html, pdf)
+        sections: Sections to include (all if None)
+        metadata: Additional metadata
+
+    Returns:
+        Report file path and download URL
+    """
+    try:
+        generator = get_report_generator()
+
+        # Convert format string to enum
+        try:
+            report_format = ReportFormat(format.lower())
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid format: {format}. Must be one of: json, markdown, html, pdf"
+            )
+
+        # Convert sections strings to enums
+        report_sections = None
+        if sections:
+            try:
+                report_sections = [ReportSection(s.lower()) for s in sections]
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=f"Invalid section: {e}")
+
+        # Convert dictionaries to dataclasses
+        quality_metrics = QualityMetrics(**metrics)
+        trend_data = [TrendData(**t) for t in trends]
+        issue_list = [Issue(**i) for i in issues]
+        recommendation_list = [Recommendation(**r) for r in recommendations]
+
+        # Generate report
+        output_path = generator.generate_report(
+            repository=repository,
+            metrics=quality_metrics,
+            trends=trend_data,
+            issues=issue_list,
+            recommendations=recommendation_list,
+            format=report_format,
+            sections=report_sections,
+            metadata=metadata
+        )
+
+        return {
+            "file_path": str(output_path),
+            "filename": output_path.name,
+            "format": format,
+            "download_url": f"/api/reports/download/{output_path.name}"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to generate report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/reports/download/{filename}")
+async def download_report(
+    filename: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Download a generated report."""
+    try:
+        generator = get_report_generator()
+        file_path = generator.output_dir / filename
+
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="Report not found")
+
+        # Determine media type based on extension
+        media_types = {
+            ".json": "application/json",
+            ".md": "text/markdown",
+            ".html": "text/html",
+            ".pdf": "application/pdf"
+        }
+        media_type = media_types.get(file_path.suffix, "application/octet-stream")
+
+        from fastapi.responses import FileResponse
+        return FileResponse(
+            path=str(file_path),
+            media_type=media_type,
+            filename=filename
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to download report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/reports/list")
+async def list_reports(
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """List all generated reports."""
+    try:
+        generator = get_report_generator()
+
+        if not generator.output_dir.exists():
+            return {"reports": []}
+
+        reports = []
+        for file_path in sorted(generator.output_dir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
+            if file_path.is_file() and file_path.name.startswith("report_"):
+                reports.append({
+                    "filename": file_path.name,
+                    "format": file_path.suffix[1:],  # Remove leading dot
+                    "size": file_path.stat().st_size,
+                    "created_at": file_path.stat().st_mtime,
+                    "download_url": f"/api/reports/download/{file_path.name}"
+                })
+
+        return {"reports": reports}
+
+    except Exception as e:
+        get_logger().error(f"Failed to list reports: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/reports/{filename}")
+async def delete_report(
+    filename: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Delete a generated report."""
+    try:
+        generator = get_report_generator()
+        file_path = generator.output_dir / filename
+
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="Report not found")
+
+        file_path.unlink()
+
+        return {"message": "Report deleted successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to delete report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 
 if __name__ == "__main__":
