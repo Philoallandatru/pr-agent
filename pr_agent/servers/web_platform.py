@@ -5639,6 +5639,11 @@ from pr_agent.quality_scoring import (
     ReviewScore,
     QualityMetric
 )
+from pr_agent.knowledge import (
+    KnowledgeBase,
+    KnowledgeType,
+    Severity as KnowledgeSeverity
+)
 
 
 @app.post("/api/notifications/templates")
@@ -6405,6 +6410,186 @@ async def get_improvement_suggestions(
         return {"suggestions": suggestions}
     except Exception as e:
         get_logger().error(f"Failed to get improvement suggestions: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Knowledge Base API
+@app.post("/api/knowledge/entries")
+async def create_knowledge_entry(
+    entry: dict,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Create a new knowledge entry."""
+    try:
+        kb = KnowledgeBase()
+        entry_id = kb.add_entry(
+            title=entry["title"],
+            content=entry["content"],
+            entry_type=KnowledgeType(entry["type"]),
+            category=entry["category"],
+            tags=entry.get("tags", []),
+            severity=KnowledgeSeverity(entry.get("severity", "info")),
+            code_example=entry.get("code_example"),
+            references=entry.get("references", [])
+        )
+        return {"entry_id": entry_id}
+    except Exception as e:
+        get_logger().error(f"Failed to create knowledge entry: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/knowledge/entries/{entry_id}")
+async def get_knowledge_entry(
+    entry_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get a knowledge entry by ID."""
+    try:
+        kb = KnowledgeBase()
+        entry = kb.get_entry(entry_id)
+        if not entry:
+            raise HTTPException(status_code=404, detail="Entry not found")
+        return entry.dict()
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to get knowledge entry: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/knowledge/entries/{entry_id}")
+async def update_knowledge_entry(
+    entry_id: str,
+    updates: dict,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Update a knowledge entry."""
+    try:
+        kb = KnowledgeBase()
+        kb.update_entry(entry_id, **updates)
+        return {"status": "updated"}
+    except Exception as e:
+        get_logger().error(f"Failed to update knowledge entry: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/knowledge/entries/{entry_id}")
+async def delete_knowledge_entry(
+    entry_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Delete a knowledge entry."""
+    try:
+        kb = KnowledgeBase()
+        kb.delete_entry(entry_id)
+        return {"status": "deleted"}
+    except Exception as e:
+        get_logger().error(f"Failed to delete knowledge entry: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/knowledge/search")
+async def search_knowledge(
+    query: str,
+    tags: Optional[str] = None,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Search knowledge entries."""
+    try:
+        kb = KnowledgeBase()
+        tag_list = tags.split(",") if tags else []
+        entries = kb.search(query, tags=tag_list)
+        return {"entries": [e.dict() for e in entries]}
+    except Exception as e:
+        get_logger().error(f"Failed to search knowledge: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/knowledge/categories/{category}")
+async def get_knowledge_by_category(
+    category: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get knowledge entries by category."""
+    try:
+        kb = KnowledgeBase()
+        entries = kb.get_by_category(category)
+        return {"entries": [e.dict() for e in entries]}
+    except Exception as e:
+        get_logger().error(f"Failed to get knowledge by category: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/knowledge/tags/{tag}")
+async def get_knowledge_by_tag(
+    tag: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get knowledge entries by tag."""
+    try:
+        kb = KnowledgeBase()
+        entries = kb.get_by_tag(tag)
+        return {"entries": [e.dict() for e in entries]}
+    except Exception as e:
+        get_logger().error(f"Failed to get knowledge by tag: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/knowledge/popular")
+async def get_popular_knowledge(
+    limit: int = 10,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get popular knowledge entries."""
+    try:
+        kb = KnowledgeBase()
+        entries = kb.get_popular(limit=limit)
+        return {"entries": [e.dict() for e in entries]}
+    except Exception as e:
+        get_logger().error(f"Failed to get popular knowledge: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/knowledge/stats")
+async def get_knowledge_stats(
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get knowledge base statistics."""
+    try:
+        kb = KnowledgeBase()
+        stats = kb.get_stats()
+        return stats
+    except Exception as e:
+        get_logger().error(f"Failed to get knowledge stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/knowledge/import")
+async def import_knowledge(
+    data: dict,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Import knowledge entries from JSON."""
+    try:
+        kb = KnowledgeBase()
+        count = kb.import_from_json(data)
+        return {"imported": count}
+    except Exception as e:
+        get_logger().error(f"Failed to import knowledge: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/knowledge/export")
+async def export_knowledge(
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Export all knowledge entries to JSON."""
+    try:
+        kb = KnowledgeBase()
+        data = kb.export_to_json()
+        return data
+    except Exception as e:
+        get_logger().error(f"Failed to export knowledge: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
