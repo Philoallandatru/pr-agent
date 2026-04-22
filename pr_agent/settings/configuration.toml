@@ -346,16 +346,6 @@ max_parallel_tasks = 10
 # token to authenticate in the patch server
 # patch_server_token = ""
 
-[bitbucket_server]
-# URL to the BitBucket Server instance
-# url = "https://git.bitbucket.com"
-url = ""
-pr_commands = [
-    "/describe --pr_description.final_update_message=false",
-    "/review",
-    "/improve --pr_code_suggestions.commitable_code_suggestions=true",
-]
-
 [litellm]
 # use_client = false
 # drop_params = false
@@ -468,3 +458,34 @@ key_prefix = "pr-agent"
 # Cache size limits (for memory backend)
 max_memory_items = 1000
 max_memory_size_mb = 100
+
+[rate_limit]
+# Rate limiting configuration
+enabled = true
+strategy = "sliding_window"  # "fixed_window", "sliding_window", or "token_bucket"
+
+# Default rate limits
+default_limit = 1000  # requests per window
+default_window = 3600  # window size in seconds (1 hour)
+
+# Redis configuration (optional, falls back to memory)
+redis_url = "redis://localhost:6379/0"
+
+# Per-endpoint rate limits (overrides default)
+# Format: "endpoint_pattern" = {limit = X, window = Y}
+[rate_limit.endpoints]
+"/api/reviews" = {limit = 100, window = 3600}
+"/api/repositories" = {limit = 50, window = 3600}
+"/api/auth/login" = {limit = 10, window = 300}
+
+[quota]
+# Quota management configuration
+enabled = true
+
+# Default quotas per organization
+default_reviews_per_month = 1000
+default_repositories = 10
+default_users = 5
+
+# Quota reset schedule
+reset_schedule = "monthly"  # "daily", "weekly", "monthly"

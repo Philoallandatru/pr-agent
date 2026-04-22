@@ -30,6 +30,8 @@ from pr_agent.security import (
 )
 from pr_agent.tenants.manager import TenantManager
 from pr_agent.servers import tenant_routes
+from pr_agent.ratelimit import RateLimiter, QuotaManager
+from pr_agent.ratelimit.middleware import RateLimitMiddleware, QuotaMiddleware
 
 # Initialize structured logger
 structured_logger = StructuredLogger(__name__)
@@ -166,6 +168,62 @@ db = Database()
 
 # Tenant manager instance
 tenant_manager = TenantManager(db.db_path)
+
+# Initialize rate limiter and quota manager
+settings = get_settings()
+rate_limit_enabled = settings.get("rate_limit.enabled", True)
+quota_enabled = settings.get("quota.enabled", True)
+
+if rate_limit_enabled:
+    # Try to connect to Redis, fallback to memory
+    redis_client = None
+    try:
+        import redis
+        redis_url = settings.get("rate_limit.redis_url", "redis://localhost:6379/0")
+        redis_client = redis.from_url(redis_url, decode_responses=False)
+        redis_client.ping()
+        structured_logger.info("Connected to Redis for rate limiting")
+    except Exception as e:
+        structured_logger.warning(f"Redis connection failed, using memory backend: {e}")
+
+    rate_limiter = RateLimiter(
+        redis_client=redis_client,
+        default_limit=settings.get("rate_limit.default_limit", 1000),
+        default_window=settings.get("rate_limit.default_window", 3600),
+        strategy=settings.get("rate_limit.strategy", "sliding_window")
+    )
+
+    # Add rate limit middleware
+    app.add_middleware(
+        RateLimitMiddleware,
+        rate_limiter=rate_limiter,
+        key_func=lambda req: (
+            f"user:{req.state.user.get('id')}"
+            if hasattr(req.state, "user") and req.state.user
+            else req.client.host if req.client else "unknown"
+        ),
+        exempt_paths=["/health", "/metrics", "/docs", "/openapi.json", "/redoc"]
+    )
+    structured_logger.info("Rate limiting enabled")
+
+if quota_enabled:
+    quota_manager = QuotaManager(db.db_path)
+
+    # Add quota middleware
+    app.add_middleware(
+        QuotaMiddleware,
+        quota_manager=quota_manager,
+        org_id_func=lambda req: (
+            req.state.user.get("org_id")
+            if hasattr(req.state, "user") and req.state.user
+            else None
+        ),
+        quota_paths={
+            "/api/reviews": "reviews",
+            "/api/repositories": "repositories"
+        }
+    )
+    structured_logger.info("Quota management enabled")
 
 # Register tenant routes
 tenant_routes.set_tenant_manager(tenant_manager)
