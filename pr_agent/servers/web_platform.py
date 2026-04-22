@@ -40,6 +40,7 @@ from pr_agent.backup import BackupManager
 from pr_agent.plugins import PluginManager
 from pr_agent.models import get_model_manager, ModelType, ModelStatus
 from pr_agent.quality import get_quality_gate, QualityGateConfig, CheckType, Severity
+from pr_agent.suggestions import get_suggestion_engine, SuggestionType, SuggestionPriority
 from strawberry.fastapi import GraphQLRouter
 from pr_agent.graphql import schema
 
@@ -1984,6 +1985,106 @@ async def update_quality_config(
     except Exception as e:
         get_logger().error(f"Failed to update quality config: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# Code Suggestion endpoints
+class SuggestionRequest(BaseModel):
+    file_paths: List[str]
+    suggestion_types: Optional[List[str]] = None
+
+
+class SuggestionResponse(BaseModel):
+    type: str
+    priority: str
+    title: str
+    description: str
+    file_path: str
+    line_number: int
+    original_code: str
+    suggested_code: str
+    reasoning: str
+    tags: List[str]
+
+
+@app.post("/api/suggestions/analyze")
+async def analyze_code_suggestions(
+    request: SuggestionRequest,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Analyze code and generate improvement suggestions."""
+    try:
+        engine = get_suggestion_engine()
+
+        # Parse suggestion types
+        types = None
+        if request.suggestion_types:
+            types = [SuggestionType(t) for t in request.suggestion_types]
+
+        # Analyze files
+        all_suggestions = []
+        for file_path in request.file_paths:
+            suggestions = engine.analyze_file(file_path, types)
+            all_suggestions.extend(suggestions)
+
+        # Convert to response format
+        response_suggestions = [
+            SuggestionResponse(
+                type=s.type.value,
+                priority=s.priority.value,
+                title=s.title,
+                description=s.description,
+                file_path=s.file_path,
+                line_number=s.line_number,
+                original_code=s.original_code,
+                suggested_code=s.suggested_code,
+                reasoning=s.reasoning,
+                tags=s.tags
+            )
+            for s in all_suggestions
+        ]
+
+        get_audit_logger().log(
+            event_type=AuditEventType.SYSTEM_EVENT,
+            user_id=current_user.username,
+            severity=AuditSeverity.INFO,
+            details={
+                "action": "code_suggestions",
+                "files_analyzed": len(request.file_paths),
+                "suggestions_generated": len(all_suggestions)
+            }
+        )
+
+        return {
+            "total_suggestions": len(all_suggestions),
+            "files_analyzed": len(request.file_paths),
+            "suggestions": response_suggestions
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to analyze code suggestions: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/suggestions/types")
+async def get_suggestion_types(
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get available suggestion types."""
+    return {
+        "types": [
+            {
+                "value": t.value,
+                "name": t.name,
+                "description": {
+                    "refactoring": "Code refactoring suggestions",
+                    "performance": "Performance optimization suggestions",
+                    "readability": "Code readability improvements",
+                    "best_practice": "Best practice recommendations",
+                    "security": "Security improvement suggestions"
+                }.get(t.value, "")
+            }
+            for t in SuggestionType
+        ]
+    }
 
 
 if __name__ == "__main__":
