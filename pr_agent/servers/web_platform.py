@@ -56,6 +56,11 @@ from pr_agent.code_search import (
     SearchType,
     SymbolType,
 )
+from pr_agent.refactoring import (
+    get_refactoring_engine,
+    RefactoringType,
+    RefactoringSeverity,
+)
 from strawberry.fastapi import GraphQLRouter
 from pr_agent.graphql import schema
 
@@ -2828,6 +2833,169 @@ async def get_workspace_symbols(
         }
     except Exception as e:
         get_logger().error(f"Failed to get workspace symbols: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Code Refactoring Endpoints
+
+@app.post("/api/refactoring/rename")
+async def rename_symbol(
+    workspace: str = Body(...),
+    old_name: str = Body(...),
+    new_name: str = Body(...),
+    scope: Optional[str] = Body(None),
+    apply: bool = Body(False),
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Rename a symbol across the workspace."""
+    try:
+        engine = get_refactoring_engine()
+        result = engine.rename_symbol(workspace, old_name, new_name, scope)
+
+        if apply and result.success:
+            applied = engine.apply_refactoring(result)
+            if not applied:
+                raise HTTPException(status_code=500, detail="Failed to apply refactoring")
+
+        return {
+            "success": result.success,
+            "refactoring_type": result.refactoring_type.value,
+            "affected_files": result.affected_files,
+            "edit_count": len(result.edits),
+            "warnings": result.warnings,
+            "severity": result.severity.value,
+            "preview": result.preview,
+            "applied": apply and result.success
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to rename symbol: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/refactoring/extract-method")
+async def extract_method(
+    file_path: str = Body(...),
+    start_line: int = Body(...),
+    end_line: int = Body(...),
+    method_name: str = Body(...),
+    apply: bool = Body(False),
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Extract code block into a new method."""
+    try:
+        engine = get_refactoring_engine()
+        result = engine.extract_method(file_path, start_line, end_line, method_name)
+
+        if apply and result.success:
+            applied = engine.apply_refactoring(result)
+            if not applied:
+                raise HTTPException(status_code=500, detail="Failed to apply refactoring")
+
+        return {
+            "success": result.success,
+            "refactoring_type": result.refactoring_type.value,
+            "affected_files": result.affected_files,
+            "edit_count": len(result.edits),
+            "warnings": result.warnings,
+            "severity": result.severity.value,
+            "preview": result.preview,
+            "applied": apply and result.success
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to extract method: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/refactoring/inline-variable")
+async def inline_variable(
+    file_path: str = Body(...),
+    variable_name: str = Body(...),
+    line: int = Body(...),
+    apply: bool = Body(False),
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Inline a variable."""
+    try:
+        engine = get_refactoring_engine()
+        result = engine.inline_variable(file_path, variable_name, line)
+
+        if apply and result.success:
+            applied = engine.apply_refactoring(result)
+            if not applied:
+                raise HTTPException(status_code=500, detail="Failed to apply refactoring")
+
+        return {
+            "success": result.success,
+            "refactoring_type": result.refactoring_type.value,
+            "affected_files": result.affected_files,
+            "edit_count": len(result.edits),
+            "warnings": result.warnings,
+            "severity": result.severity.value,
+            "preview": result.preview,
+            "applied": apply and result.success
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to inline variable: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/refactoring/preview")
+async def preview_refactoring(
+    refactoring_type: str = Body(...),
+    params: Dict = Body(...),
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Preview a refactoring operation without applying it."""
+    try:
+        engine = get_refactoring_engine()
+
+        if refactoring_type == "rename_symbol":
+            result = engine.rename_symbol(
+                params.get("workspace"),
+                params.get("old_name"),
+                params.get("new_name"),
+                params.get("scope")
+            )
+        elif refactoring_type == "extract_method":
+            result = engine.extract_method(
+                params.get("file_path"),
+                params.get("start_line"),
+                params.get("end_line"),
+                params.get("method_name")
+            )
+        elif refactoring_type == "inline_variable":
+            result = engine.inline_variable(
+                params.get("file_path"),
+                params.get("variable_name"),
+                params.get("line")
+            )
+        else:
+            raise HTTPException(status_code=400, detail="Invalid refactoring type")
+
+        # Return detailed edits for preview
+        edits = []
+        for edit in result.edits:
+            edits.append({
+                "file_path": edit.file_path,
+                "start_line": edit.start_line,
+                "start_col": edit.start_col,
+                "end_line": edit.end_line,
+                "end_col": edit.end_col,
+                "old_text": edit.old_text,
+                "new_text": edit.new_text
+            })
+
+        return {
+            "success": result.success,
+            "refactoring_type": result.refactoring_type.value,
+            "affected_files": result.affected_files,
+            "edits": edits,
+            "warnings": result.warnings,
+            "severity": result.severity.value,
+            "preview": result.preview
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to preview refactoring: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
