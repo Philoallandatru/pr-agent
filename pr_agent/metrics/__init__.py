@@ -14,6 +14,18 @@ from pr_agent.metrics.analyzer import (
     Severity,
 )
 
+from pr_agent.metrics.collector import (
+    MetricsCollector,
+    ReviewMetrics,
+    EfficiencyMetrics,
+    QualityMetrics,
+    TeamMetrics,
+    ProcessMetrics,
+    MetricsSummary,
+    TimeRange,
+    get_metrics_collector
+)
+
 __all__ = [
     "MetricsAnalyzer",
     "get_metrics_analyzer",
@@ -22,4 +34,13 @@ __all__ = [
     "MetricsTrend",
     "MetricType",
     "Severity",
+    "MetricsCollector",
+    "ReviewMetrics",
+    "EfficiencyMetrics",
+    "QualityMetrics",
+    "TeamMetrics",
+    "ProcessMetrics",
+    "MetricsSummary",
+    "TimeRange",
+    "get_metrics_collector"
 ]

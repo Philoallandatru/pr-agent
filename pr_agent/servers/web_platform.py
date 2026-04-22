@@ -5669,6 +5669,14 @@ from pr_agent.review_collaboration import (
     get_collaboration_system,
 )
 
+from pr_agent.metrics import (
+    MetricsCollector,
+    ReviewMetrics,
+    TimeRange,
+    get_metrics_collector,
+)
+)
+
 
 @app.post("/api/notifications/templates")
 async def create_notification_template(
@@ -7230,6 +7238,269 @@ async def end_review_session(
         return {"status": "success"}
     except Exception as e:
         get_logger().error(f"Failed to end session: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Metrics Collection API
+# ============================================================================
+
+@app.post("/api/metrics/reviews")
+async def record_review_metric(
+    request: dict,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Record a code review metric."""
+    try:
+        collector = get_metrics_collector()
+
+        metrics = ReviewMetrics(
+            review_id=request["review_id"],
+            pr_id=request["pr_id"],
+            repository=request["repository"],
+            author=request["author"],
+            reviewers=request["reviewers"],
+            created_at=request.get("created_at", datetime.now(timezone.utc).isoformat()),
+            first_response_time_minutes=request.get("first_response_time_minutes"),
+            total_review_time_minutes=request.get("total_review_time_minutes"),
+            time_to_merge_minutes=request.get("time_to_merge_minutes"),
+            lines_added=request.get("lines_added", 0),
+            lines_deleted=request.get("lines_deleted", 0),
+            files_changed=request.get("files_changed", 0),
+            comments_count=request.get("comments_count", 0),
+            issues_found=request.get("issues_found", 0),
+            suggestions_made=request.get("suggestions_made", 0),
+            iterations=request.get("iterations", 1),
+            approved=request.get("approved", False),
+            merged=request.get("merged", False),
+            rejected=request.get("rejected", False),
+            metadata=request.get("metadata", {})
+        )
+
+        collector.record_review(metrics)
+        return {"status": "success", "review_id": request["review_id"]}
+    except Exception as e:
+        get_logger().error(f"Failed to record review metric: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/metrics/reviews/{review_id}")
+async def update_review_metric(
+    review_id: str,
+    request: dict,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Update a review metric."""
+    try:
+        collector = get_metrics_collector()
+        collector.update_review(review_id, **request)
+        return {"status": "success"}
+    except Exception as e:
+        get_logger().error(f"Failed to update review metric: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/metrics/summary")
+async def get_metrics_summary(
+    time_range: str = "month",
+    repository: Optional[str] = None,
+    author: Optional[str] = None,
+    reviewer: Optional[str] = None,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get comprehensive metrics summary."""
+    try:
+        collector = get_metrics_collector()
+
+        # Convert time_range string to TimeRange enum
+        time_range_map = {
+            "day": TimeRange.DAY,
+            "week": TimeRange.WEEK,
+            "month": TimeRange.MONTH,
+            "quarter": TimeRange.QUARTER,
+            "year": TimeRange.YEAR,
+            "all": TimeRange.ALL_TIME
+        }
+
+        if time_range not in time_range_map:
+            raise HTTPException(status_code=400, detail=f"Invalid time_range: {time_range}")
+
+        summary = collector.get_metrics_summary(
+            time_range=time_range_map[time_range],
+            repository=repository,
+            author=author,
+            reviewer=reviewer
+        )
+
+        return {
+            "time_range": summary.time_range,
+            "start_date": summary.start_date,
+            "end_date": summary.end_date,
+            "efficiency": {
+                "avg_first_response_time_minutes": summary.efficiency.avg_first_response_time_minutes,
+                "avg_total_review_time_minutes": summary.efficiency.avg_total_review_time_minutes,
+                "avg_time_to_merge_minutes": summary.efficiency.avg_time_to_merge_minutes,
+                "median_first_response_time_minutes": summary.efficiency.median_first_response_time_minutes,
+                "reviews_per_day": summary.efficiency.reviews_per_day,
+                "throughput": summary.efficiency.throughput,
+                "p90_response_time": summary.efficiency.p90_response_time,
+                "p95_response_time": summary.efficiency.p95_response_time
+            },
+            "quality": {
+                "avg_comments_per_review": summary.quality.avg_comments_per_review,
+                "avg_issues_per_review": summary.quality.avg_issues_per_review,
+                "avg_suggestions_per_review": summary.quality.avg_suggestions_per_review,
+                "avg_iterations": summary.quality.avg_iterations,
+                "approval_rate": summary.quality.approval_rate,
+                "rejection_rate": summary.quality.rejection_rate,
+                "thoroughness_score": summary.quality.thoroughness_score,
+                "issue_detection_rate": summary.quality.issue_detection_rate
+            },
+            "team": {
+                "total_reviewers": summary.team.total_reviewers,
+                "active_reviewers": summary.team.active_reviewers,
+                "avg_reviews_per_reviewer": summary.team.avg_reviews_per_reviewer,
+                "workload_std_dev": summary.team.workload_std_dev,
+                "avg_reviewers_per_pr": summary.team.avg_reviewers_per_pr
+            },
+            "process": {
+                "total_reviews": summary.process.total_reviews,
+                "completed_reviews": summary.process.completed_reviews,
+                "pending_reviews": summary.process.pending_reviews,
+                "completion_rate": summary.process.completion_rate,
+                "avg_lines_changed": summary.process.avg_lines_changed,
+                "avg_files_changed": summary.process.avg_files_changed,
+                "merge_rate": summary.process.merge_rate
+            },
+            "trends": summary.trends
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to get metrics summary: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/metrics/reviewer/{reviewer}")
+async def get_reviewer_metrics(
+    reviewer: str,
+    time_range: str = "month",
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get metrics for a specific reviewer."""
+    try:
+        collector = get_metrics_collector()
+
+        time_range_map = {
+            "day": TimeRange.DAY,
+            "week": TimeRange.WEEK,
+            "month": TimeRange.MONTH,
+            "quarter": TimeRange.QUARTER,
+            "year": TimeRange.YEAR
+        }
+
+        if time_range not in time_range_map:
+            raise HTTPException(status_code=400, detail=f"Invalid time_range: {time_range}")
+
+        metrics = collector.get_reviewer_metrics(reviewer, time_range_map[time_range])
+        return metrics
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to get reviewer metrics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/metrics/author/{author}")
+async def get_author_metrics(
+    author: str,
+    time_range: str = "month",
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get metrics for a specific author."""
+    try:
+        collector = get_metrics_collector()
+
+        time_range_map = {
+            "day": TimeRange.DAY,
+            "week": TimeRange.WEEK,
+            "month": TimeRange.MONTH,
+            "quarter": TimeRange.QUARTER,
+            "year": TimeRange.YEAR
+        }
+
+        if time_range not in time_range_map:
+            raise HTTPException(status_code=400, detail=f"Invalid time_range: {time_range}")
+
+        metrics = collector.get_author_metrics(author, time_range_map[time_range])
+        return metrics
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to get author metrics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/metrics/repository/{repository:path}")
+async def get_repository_metrics(
+    repository: str,
+    time_range: str = "month",
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get metrics for a specific repository."""
+    try:
+        collector = get_metrics_collector()
+
+        time_range_map = {
+            "day": TimeRange.DAY,
+            "week": TimeRange.WEEK,
+            "month": TimeRange.MONTH,
+            "quarter": TimeRange.QUARTER,
+            "year": TimeRange.YEAR
+        }
+
+        if time_range not in time_range_map:
+            raise HTTPException(status_code=400, detail=f"Invalid time_range: {time_range}")
+
+        metrics = collector.get_repository_metrics(repository, time_range_map[time_range])
+        return metrics
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to get repository metrics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/metrics/compare")
+async def compare_periods(
+    period1: str = "quarter",
+    period2: str = "month",
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Compare metrics between two time periods."""
+    try:
+        collector = get_metrics_collector()
+
+        time_range_map = {
+            "day": TimeRange.DAY,
+            "week": TimeRange.WEEK,
+            "month": TimeRange.MONTH,
+            "quarter": TimeRange.QUARTER,
+            "year": TimeRange.YEAR
+        }
+
+        if period1 not in time_range_map or period2 not in time_range_map:
+            raise HTTPException(status_code=400, detail="Invalid time period")
+
+        comparison = collector.compare_periods(
+            time_range_map[period1],
+            time_range_map[period2]
+        )
+        return comparison
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to compare periods: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
