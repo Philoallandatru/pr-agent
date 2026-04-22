@@ -5620,6 +5620,12 @@ from pr_agent.notifications import (
     NotificationPreference,
     get_notification_system
 )
+from pr_agent.dashboard import (
+    DashboardSystem,
+    Dashboard,
+    DashboardWidget,
+    TimeRange
+)
 
 
 @app.post("/api/notifications/templates")
@@ -5772,6 +5778,308 @@ async def get_notification_history(
 
     except Exception as e:
         get_logger().error(f"Failed to get notification history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Dashboard API
+# ============================================================================
+
+# Global dashboard system instance
+_dashboard_system = None
+
+
+def get_dashboard_system() -> DashboardSystem:
+    """Get or create dashboard system instance."""
+    global _dashboard_system
+    if _dashboard_system is None:
+        _dashboard_system = DashboardSystem()
+    return _dashboard_system
+
+
+@app.post("/api/dashboards")
+async def create_dashboard(
+    request: Dict[str, Any],
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Create a new dashboard."""
+    try:
+        system = get_dashboard_system()
+        dashboard = system.create_dashboard(
+            dashboard_id=request["dashboard_id"],
+            name=request["name"],
+            description=request.get("description", ""),
+            time_range=TimeRange(request.get("time_range", "week")),
+            auto_refresh=request.get("auto_refresh", True),
+            refresh_interval_seconds=request.get("refresh_interval_seconds", 300),
+            metadata=request.get("metadata")
+        )
+        return dashboard.to_dict()
+    except Exception as e:
+        get_logger().error(f"Failed to create dashboard: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/dashboards")
+async def list_dashboards(
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """List all dashboards."""
+    try:
+        system = get_dashboard_system()
+        dashboards = system.list_dashboards()
+        return {
+            "dashboards": [d.to_dict() for d in dashboards],
+            "count": len(dashboards)
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to list dashboards: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/dashboards/{dashboard_id}")
+async def get_dashboard(
+    dashboard_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get dashboard by ID."""
+    try:
+        system = get_dashboard_system()
+        dashboard = system.get_dashboard(dashboard_id)
+        if not dashboard:
+            raise HTTPException(status_code=404, detail="Dashboard not found")
+        return dashboard.to_dict()
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to get dashboard: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/dashboards/{dashboard_id}")
+async def delete_dashboard(
+    dashboard_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Delete a dashboard."""
+    try:
+        system = get_dashboard_system()
+        system.delete_dashboard(dashboard_id)
+        return {"message": "Dashboard deleted successfully"}
+    except Exception as e:
+        get_logger().error(f"Failed to delete dashboard: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/dashboards/{dashboard_id}/widgets")
+async def add_widget(
+    dashboard_id: str,
+    request: Dict[str, Any],
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Add widget to dashboard."""
+    try:
+        system = get_dashboard_system()
+
+        # Parse position and size
+        position_data = request.get("position", {"x": 0, "y": 0})
+        position = (position_data.get("x", 0), position_data.get("y", 0))
+
+        size_data = request.get("size", {"w": 4, "h": 4})
+        size = (size_data.get("w", 4), size_data.get("h", 4))
+
+        widget = system.add_widget(
+            dashboard_id=dashboard_id,
+            widget_id=request["widget_id"],
+            widget_type=request["widget_type"],
+            title=request["title"],
+            position=position,
+            size=size,
+            config=request.get("config", {}),
+            metadata=request.get("metadata")
+        )
+        return widget.to_dict()
+    except Exception as e:
+        get_logger().error(f"Failed to add widget: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/dashboards/{dashboard_id}/widgets/{widget_id}")
+async def remove_widget(
+    dashboard_id: str,
+    widget_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Remove widget from dashboard."""
+    try:
+        system = get_dashboard_system()
+        system.remove_widget(dashboard_id, widget_id)
+        return {"message": "Widget removed successfully"}
+    except Exception as e:
+        get_logger().error(f"Failed to remove widget: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/dashboards/reviews")
+async def record_review(
+    review_data: Dict[str, Any],
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Record review data for analytics."""
+    try:
+        system = get_dashboard_system()
+        system.record_review(review_data)
+        return {"message": "Review recorded successfully"}
+    except Exception as e:
+        get_logger().error(f"Failed to record review: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/dashboards/stats/reviews")
+async def get_review_stats(
+    time_range: str = "week",
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get review statistics."""
+    try:
+        system = get_dashboard_system()
+
+        # Parse time range
+        if time_range in ["day", "week", "month", "year"]:
+            time_range_enum = TimeRange(time_range)
+            stats = system.get_review_stats(time_range=time_range_enum)
+        elif start_date and end_date:
+            stats = system.get_review_stats(
+                start_date=start_date,
+                end_date=end_date
+            )
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Either time_range or start_date/end_date must be provided"
+            )
+
+        return stats.to_dict()
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to get review stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/dashboards/stats/workload")
+async def get_reviewer_workload(
+    reviewer_id: Optional[str] = None,
+    time_range: str = "week",
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get reviewer workload statistics."""
+    try:
+        system = get_dashboard_system()
+        time_range_enum = TimeRange(time_range)
+        workload = system.get_reviewer_workload(
+            reviewer_id=reviewer_id,
+            time_range=time_range_enum
+        )
+
+        if reviewer_id:
+            return workload.to_dict() if workload else {}
+        else:
+            return {
+                "workloads": [w.to_dict() for w in workload],
+                "count": len(workload)
+            }
+    except Exception as e:
+        get_logger().error(f"Failed to get reviewer workload: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/dashboards/stats/trends")
+async def get_time_trends(
+    metric: str = "reviews",
+    time_range: str = "week",
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get time-based trends."""
+    try:
+        system = get_dashboard_system()
+        time_range_enum = TimeRange(time_range)
+        trends = system.get_time_trends(
+            metric=metric,
+            time_range=time_range_enum
+        )
+        return {
+            "trends": [t.to_dict() for t in trends],
+            "count": len(trends)
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to get time trends: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/dashboards/stats/quality")
+async def get_quality_metrics(
+    time_range: str = "week",
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get code quality metrics."""
+    try:
+        system = get_dashboard_system()
+        time_range_enum = TimeRange(time_range)
+        metrics = system.get_quality_metrics(time_range=time_range_enum)
+        return metrics.to_dict()
+    except Exception as e:
+        get_logger().error(f"Failed to get quality metrics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/dashboards/stats/efficiency")
+async def get_team_efficiency(
+    time_range: str = "week",
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get team efficiency metrics."""
+    try:
+        system = get_dashboard_system()
+        time_range_enum = TimeRange(time_range)
+        efficiency = system.get_team_efficiency(time_range=time_range_enum)
+        return efficiency.to_dict()
+    except Exception as e:
+        get_logger().error(f"Failed to get team efficiency: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/dashboards/export")
+async def export_dashboard_data(
+    format: str = "json",
+    time_range: str = "week",
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Export dashboard data."""
+    try:
+        system = get_dashboard_system()
+        time_range_enum = TimeRange(time_range)
+        data = system.export_data(
+            format=format,
+            time_range=time_range_enum
+        )
+
+        if format == "json":
+            return data
+        elif format == "csv":
+            return Response(
+                content=data,
+                media_type="text/csv",
+                headers={"Content-Disposition": "attachment; filename=dashboard_data.csv"}
+            )
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported format")
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to export dashboard data: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
