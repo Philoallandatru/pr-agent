@@ -76,6 +76,11 @@ from pr_agent.documentation import (
     DocLanguage,
     DocFormat,
 )
+from pr_agent.metrics import (
+    get_metrics_analyzer,
+    MetricType,
+    Severity as MetricSeverity,
+)
 from strawberry.fastapi import GraphQLRouter
 from pr_agent.graphql import schema
 
@@ -3476,6 +3481,143 @@ async def get_doc_formats(
     return {
         "formats": [f.value for f in DocFormat],
         "languages": [l.value for l in DocLanguage]
+    }
+
+
+# ============================================================================
+# Code Metrics Endpoints
+# ============================================================================
+
+class AnalyzeFileMetricsRequest(BaseModel):
+    file_path: str
+
+
+class AnalyzeProjectMetricsRequest(BaseModel):
+    project_dir: str
+    patterns: Optional[List[str]] = None
+
+
+class GenerateMetricsReportRequest(BaseModel):
+    project_dir: str
+    format: str = "text"
+    patterns: Optional[List[str]] = None
+
+
+@app.post("/api/metrics/file")
+async def analyze_file_metrics(
+    request: AnalyzeFileMetricsRequest,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Analyze metrics for a single file."""
+    try:
+        analyzer = get_metrics_analyzer()
+        metrics = analyzer.analyze_file(request.file_path)
+
+        return {
+            "path": metrics.path,
+            "language": metrics.language,
+            "loc": metrics.loc,
+            "sloc": metrics.sloc,
+            "comments": metrics.comments,
+            "blank": metrics.blank,
+            "complexity": metrics.complexity,
+            "maintainability": metrics.maintainability,
+            "functions": metrics.functions,
+            "classes": metrics.classes,
+            "issues": metrics.issues
+        }
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="File not found")
+    except Exception as e:
+        get_logger().error(f"Failed to analyze file metrics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/metrics/project")
+async def analyze_project_metrics(
+    request: AnalyzeProjectMetricsRequest,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Analyze metrics for entire project."""
+    try:
+        analyzer = get_metrics_analyzer()
+        metrics = analyzer.analyze_project(
+            request.project_dir,
+            patterns=request.patterns
+        )
+
+        return {
+            "summary": {
+                "total_files": metrics.total_files,
+                "total_loc": metrics.total_loc,
+                "total_sloc": metrics.total_sloc,
+                "total_comments": metrics.total_comments,
+                "total_blank": metrics.total_blank,
+                "total_functions": metrics.total_functions,
+                "total_classes": metrics.total_classes,
+                "avg_complexity": metrics.avg_complexity,
+                "avg_maintainability": metrics.avg_maintainability,
+                "duplication_percentage": metrics.duplication_percentage,
+                "technical_debt_hours": metrics.technical_debt_hours
+            },
+            "language_breakdown": metrics.language_breakdown,
+            "complexity_distribution": metrics.complexity_distribution,
+            "timestamp": metrics.timestamp,
+            "files": [
+                {
+                    "path": f.path,
+                    "language": f.language,
+                    "loc": f.loc,
+                    "sloc": f.sloc,
+                    "complexity": f.complexity,
+                    "maintainability": f.maintainability,
+                    "issues": f.issues
+                }
+                for f in metrics.files[:100]  # Limit to first 100 files
+            ]
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        get_logger().error(f"Failed to analyze project metrics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/metrics/report")
+async def generate_metrics_report(
+    request: GenerateMetricsReportRequest,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Generate metrics report."""
+    try:
+        analyzer = get_metrics_analyzer()
+        metrics = analyzer.analyze_project(
+            request.project_dir,
+            patterns=request.patterns
+        )
+
+        report = analyzer.generate_report(metrics, format=request.format)
+
+        return {
+            "format": request.format,
+            "report": report,
+            "timestamp": metrics.timestamp
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        get_logger().error(f"Failed to generate metrics report: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/metrics/types")
+async def get_metric_types(
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get available metric types."""
+    return {
+        "types": [t.value for t in MetricType],
+        "severities": [s.value for s in MetricSeverity]
     }
 
 
