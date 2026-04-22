@@ -34,6 +34,7 @@ from pr_agent.ratelimit import RateLimiter, QuotaManager
 from pr_agent.ratelimit.middleware import RateLimitMiddleware, QuotaMiddleware
 from pr_agent.health import HealthChecker
 from pr_agent.config.hot_reload import get_hot_reload_manager
+from pr_agent.audit import get_audit_logger, AuditEventType, AuditSeverity
 
 # Initialize structured logger
 structured_logger = StructuredLogger(__name__)
@@ -171,6 +172,12 @@ db = Database()
 # Tenant manager instance
 tenant_manager = TenantManager(db.db_path)
 
+# Initialize audit logger
+audit_logger = get_audit_logger(
+    db_path=get_settings().get("audit.db_path", "audit.db")
+)
+structured_logger.info("Audit logging initialized")
+
 # Initialize hot reload manager
 hot_reload_manager = None
 if get_settings().get("config.hot_reload_enabled", False):
@@ -290,11 +297,20 @@ async def root():
 
 # Authentication endpoints
 @app.post("/api/auth/login", response_model=TokenResponse)
-async def login(request: LoginRequest):
+async def login(request: LoginRequest, req: Request):
     """Authenticate user and return JWT token"""
     try:
         user = auth_manager.authenticate_user(request.username, request.password)
         if not user:
+            # Log failed login attempt
+            audit_logger.log(
+                event_type=AuditEventType.LOGIN_FAILURE,
+                severity=AuditSeverity.WARNING,
+                username=request.username,
+                ip_address=req.client.host if req.client else None,
+                result="failure",
+                message="Invalid credentials"
+            )
             raise HTTPException(status_code=401, detail="Invalid username or password")
 
         from datetime import timedelta
@@ -304,6 +320,18 @@ async def login(request: LoginRequest):
         )
 
         structured_logger.info("User logged in", username=user.username)
+
+        # Log successful login
+        audit_logger.log(
+            event_type=AuditEventType.LOGIN_SUCCESS,
+            severity=AuditSeverity.INFO,
+            user_id=str(user.id) if hasattr(user, 'id') else None,
+            username=user.username,
+            ip_address=req.client.host if req.client else None,
+            result="success",
+            message="User logged in successfully",
+            metadata={"role": user.role}
+        )
 
         return TokenResponse(
             access_token=access_token,
@@ -930,7 +958,7 @@ async def get_config(current_user: User = Depends(get_current_user_or_api_key)):
 
 
 @app.post("/api/config/reload")
-async def reload_config(current_user: User = Depends(require_role("admin"))):
+async def reload_config(current_user: User = Depends(require_role("admin")), req: Request = None):
     """Manually trigger configuration reload (admin only)"""
     if not hot_reload_manager:
         raise HTTPException(status_code=503, detail="Hot reload not enabled")
@@ -940,6 +968,18 @@ async def reload_config(current_user: User = Depends(require_role("admin"))):
         hot_reload_manager.watcher._trigger_reload()
 
         structured_logger.info("Manual config reload triggered", user=current_user.username)
+
+        # Log audit event
+        audit_logger.log(
+            event_type=AuditEventType.CONFIG_RELOADED,
+            severity=AuditSeverity.INFO,
+            user_id=str(current_user.id) if hasattr(current_user, 'id') else None,
+            username=current_user.username,
+            ip_address=req.client.host if req and req.client else None,
+            action="reload",
+            result="success",
+            message="Configuration reloaded manually"
+        )
 
         return {
             "status": "success",
@@ -1024,6 +1064,146 @@ async def disable_hot_reload(current_user: User = Depends(require_role("admin"))
         }
     except Exception as e:
         get_logger().error(f"Failed to disable hot reload: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Audit log endpoints
+@app.get("/api/audit/logs")
+async def get_audit_logs(
+    event_type: Optional[str] = Query(None),
+    severity: Optional[str] = Query(None),
+    user_id: Optional[str] = Query(None),
+    username: Optional[str] = Query(None),
+    resource_type: Optional[str] = Query(None),
+    start_time: Optional[str] = Query(None),
+    end_time: Optional[str] = Query(None),
+    limit: int = Query(100, le=1000),
+    offset: int = Query(0, ge=0),
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Query audit logs (admin or viewer with audit permission)"""
+    if current_user.role not in ["admin", "viewer"]:
+        raise HTTPException(status_code=403, detail="Admin or viewer role required")
+
+    try:
+        # Parse filters
+        event_types = None
+        if event_type:
+            try:
+                event_types = [AuditEventType(event_type)]
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"Invalid event type: {event_type}")
+
+        severity_filter = None
+        if severity:
+            try:
+                severity_filter = AuditSeverity(severity)
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"Invalid severity: {severity}")
+
+        start_dt = None
+        if start_time:
+            try:
+                start_dt = datetime.fromisoformat(start_time)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid start_time format")
+
+        end_dt = None
+        if end_time:
+            try:
+                end_dt = datetime.fromisoformat(end_time)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid end_time format")
+
+        # Query logs
+        logs = audit_logger.query(
+            event_types=event_types,
+            severity=severity_filter,
+            user_id=user_id,
+            username=username,
+            resource_type=resource_type,
+            start_time=start_dt,
+            end_time=end_dt,
+            limit=limit,
+            offset=offset
+        )
+
+        return {
+            "logs": logs,
+            "count": len(logs),
+            "limit": limit,
+            "offset": offset
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to query audit logs: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/audit/statistics")
+async def get_audit_statistics(
+    start_time: Optional[str] = Query(None),
+    end_time: Optional[str] = Query(None),
+    current_user: User = Depends(require_role("admin"))
+):
+    """Get audit log statistics (admin only)"""
+    try:
+        start_dt = None
+        if start_time:
+            try:
+                start_dt = datetime.fromisoformat(start_time)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid start_time format")
+
+        end_dt = None
+        if end_time:
+            try:
+                end_dt = datetime.fromisoformat(end_time)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid end_time format")
+
+        stats = audit_logger.get_statistics(
+            start_time=start_dt,
+            end_time=end_dt
+        )
+
+        return stats
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to get audit statistics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/audit/cleanup")
+async def cleanup_audit_logs(
+    days: int = Query(90, ge=1, le=365),
+    current_user: User = Depends(require_role("admin"))
+):
+    """Clean up old audit logs (admin only)"""
+    try:
+        deleted = audit_logger.cleanup_old_logs(days=days)
+
+        audit_logger.log(
+            event_type=AuditEventType.RESOURCE_DELETED,
+            severity=AuditSeverity.INFO,
+            user_id=str(current_user.id) if hasattr(current_user, 'id') else None,
+            username=current_user.username,
+            resource_type="audit_logs",
+            action="cleanup",
+            result="success",
+            message=f"Cleaned up {deleted} audit logs older than {days} days",
+            metadata={"days": days, "deleted_count": deleted}
+        )
+
+        return {
+            "status": "success",
+            "deleted_count": deleted,
+            "retention_days": days
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to cleanup audit logs: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
