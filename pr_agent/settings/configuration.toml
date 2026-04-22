@@ -531,4 +531,16 @@ duplication_threshold = 0.1
 [plugins.security_check]
 enabled = false
 check_secrets = true
+
+[cache]
+# Request caching configuration
+enabled = true
+max_size = 5000  # Maximum number of cached entries
+policy = "lru"  # Cache eviction policy: "lru", "lfu", or "ttl"
+default_ttl = 7200  # Default TTL in seconds (2 hours)
+enable_stats = true  # Enable statistics tracking
+
+# Cleanup schedule
+auto_cleanup_enabled = true
+cleanup_interval = 3600  # Run cleanup every hour (seconds)
 check_vulnerabilities = true
