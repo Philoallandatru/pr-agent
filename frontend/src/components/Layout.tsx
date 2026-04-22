@@ -27,6 +27,7 @@ import {
   Settings as SettingsIcon,
   Article as ArticleIcon,
   Backup as BackupIcon,
+  Psychology as ModelsIcon,
   AccountCircle,
   Logout,
 } from '@mui/icons-material';
@@ -39,6 +40,7 @@ const menuItems = [
   { text: 'Repositories', icon: <FolderIcon />, path: '/repositories' },
   { text: 'Review History', icon: <HistoryIcon />, path: '/reviews' },
   { text: 'Prompt Editor', icon: <EditIcon />, path: '/prompts' },
+  { text: 'AI Models', icon: <ModelsIcon />, path: '/models' },
   { text: 'Configuration', icon: <SettingsIcon />, path: '/config' },
   { text: 'Logs', icon: <ArticleIcon />, path: '/logs' },
   { text: 'Backups', icon: <BackupIcon />, path: '/backups' },

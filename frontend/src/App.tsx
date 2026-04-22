@@ -10,6 +10,7 @@ import Prompts from './pages/Prompts';
 import Config from './pages/Config';
 import Logs from './pages/Logs';
 import Backups from './pages/Backups';
+import Models from './pages/Models';
 import Login from './pages/Login';
 
 function App() {
@@ -29,6 +30,7 @@ function App() {
                     <Route path="/repositories" element={<Repositories />} />
                     <Route path="/reviews" element={<Reviews />} />
                     <Route path="/prompts" element={<Prompts />} />
+                    <Route path="/models" element={<Models />} />
                     <Route path="/config" element={<Config />} />
                     <Route path="/logs" element={<Logs />} />
                     <Route path="/backups" element={<Backups />} />
