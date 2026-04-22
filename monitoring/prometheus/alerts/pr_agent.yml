@@ -1,0 +1,225 @@
+groups:
+- name: pr_agent_alerts
+  interval: 30s
+  rules:
+  # Application Health
+  - alert: PRAgentDown
+    expr: up{job="pr-agent-web"} == 0
+    for: 2m
+    labels:
+      severity: critical
+      component: web
+    annotations:
+      summary: "PR Agent web service is down"
+      description: "PR Agent web service {{ $labels.pod }} has been down for more than 2 minutes."
+
+  - alert: PRAgentPollerDown
+    expr: up{job="pr-agent-poller"} == 0
+    for: 5m
+    labels:
+      severity: warning
+      component: poller
+    annotations:
+      summary: "PR Agent poller service is down"
+      description: "PR Agent poller service has been down for more than 5 minutes."
+
+  # High Error Rate
+  - alert: HighErrorRate
+    expr: rate(http_requests_total{status=~"5.."}[5m]) > 0.05
+    for: 5m
+    labels:
+      severity: warning
+      component: web
+    annotations:
+      summary: "High HTTP error rate detected"
+      description: "Error rate is {{ $value | humanizePercentage }} for {{ $labels.pod }}."
+
+  - alert: CriticalErrorRate
+    expr: rate(http_requests_total{status=~"5.."}[5m]) > 0.1
+    for: 2m
+    labels:
+      severity: critical
+      component: web
+    annotations:
+      summary: "Critical HTTP error rate detected"
+      description: "Error rate is {{ $value | humanizePercentage }} for {{ $labels.pod }}."
+
+  # Response Time
+  - alert: HighResponseTime
+    expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 2
+    for: 5m
+    labels:
+      severity: warning
+      component: web
+    annotations:
+      summary: "High API response time"
+      description: "95th percentile response time is {{ $value }}s for {{ $labels.pod }}."
+
+  - alert: VeryHighResponseTime
+    expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 5
+    for: 2m
+    labels:
+      severity: critical
+      component: web
+    annotations:
+      summary: "Very high API response time"
+      description: "95th percentile response time is {{ $value }}s for {{ $labels.pod }}."
+
+  # PR Review Failures
+  - alert: PRReviewFailureRate
+    expr: rate(pr_reviews_total{status="failed"}[10m]) / rate(pr_reviews_total[10m]) > 0.2
+    for: 10m
+    labels:
+      severity: warning
+      component: reviewer
+    annotations:
+      summary: "High PR review failure rate"
+      description: "PR review failure rate is {{ $value | humanizePercentage }}."
+
+  - alert: NoPRReviewsProcessed
+    expr: rate(pr_reviews_total[30m]) == 0
+    for: 30m
+    labels:
+      severity: warning
+      component: poller
+    annotations:
+      summary: "No PR reviews processed"
+      description: "No PR reviews have been processed in the last 30 minutes."
+
+  # Resource Usage
+  - alert: HighMemoryUsage
+    expr: container_memory_usage_bytes{pod=~"pr-agent.*"} / container_spec_memory_limit_bytes{pod=~"pr-agent.*"} > 0.9
+    for: 5m
+    labels:
+      severity: warning
+      component: resources
+    annotations:
+      summary: "High memory usage"
+      description: "Memory usage is {{ $value | humanizePercentage }} for {{ $labels.pod }}."
+
+  - alert: HighCPUUsage
+    expr: rate(container_cpu_usage_seconds_total{pod=~"pr-agent.*"}[5m]) / container_spec_cpu_quota{pod=~"pr-agent.*"} * 100000 > 90
+    for: 10m
+    labels:
+      severity: warning
+      component: resources
+    annotations:
+      summary: "High CPU usage"
+      description: "CPU usage is {{ $value }}% for {{ $labels.pod }}."
+
+  # Database
+  - alert: SlowDatabaseQueries
+    expr: histogram_quantile(0.95, rate(db_query_duration_seconds_bucket[5m])) > 1
+    for: 5m
+    labels:
+      severity: warning
+      component: database
+    annotations:
+      summary: "Slow database queries detected"
+      description: "95th percentile query time is {{ $value }}s."
+
+  - alert: HighDatabaseErrorRate
+    expr: rate(db_errors_total[5m]) > 0.01
+    for: 5m
+    labels:
+      severity: warning
+      component: database
+    annotations:
+      summary: "High database error rate"
+      description: "Database error rate is {{ $value }} errors/sec."
+
+  # Cache
+  - alert: LowCacheHitRate
+    expr: rate(cache_hits_total[10m]) / (rate(cache_hits_total[10m]) + rate(cache_misses_total[10m])) < 0.7
+    for: 10m
+    labels:
+      severity: warning
+      component: cache
+    annotations:
+      summary: "Low cache hit rate"
+      description: "Cache hit rate is {{ $value | humanizePercentage }}."
+
+  - alert: RedisDown
+    expr: up{job="redis"} == 0
+    for: 2m
+    labels:
+      severity: critical
+      component: cache
+    annotations:
+      summary: "Redis is down"
+      description: "Redis has been down for more than 2 minutes."
+
+  # Disk Space
+  - alert: LowDiskSpace
+    expr: (node_filesystem_avail_bytes{mountpoint="/data"} / node_filesystem_size_bytes{mountpoint="/data"}) < 0.1
+    for: 5m
+    labels:
+      severity: warning
+      component: storage
+    annotations:
+      summary: "Low disk space"
+      description: "Only {{ $value | humanizePercentage }} disk space remaining on /data."
+
+  - alert: CriticalDiskSpace
+    expr: (node_filesystem_avail_bytes{mountpoint="/data"} / node_filesystem_size_bytes{mountpoint="/data"}) < 0.05
+    for: 2m
+    labels:
+      severity: critical
+      component: storage
+    annotations:
+      summary: "Critical disk space"
+      description: "Only {{ $value | humanizePercentage }} disk space remaining on /data."
+
+  # Pod Restarts
+  - alert: FrequentPodRestarts
+    expr: rate(kube_pod_container_status_restarts_total{pod=~"pr-agent.*"}[15m]) > 0.1
+    for: 5m
+    labels:
+      severity: warning
+      component: kubernetes
+    annotations:
+      summary: "Frequent pod restarts"
+      description: "Pod {{ $labels.pod }} is restarting frequently ({{ $value }} restarts/min)."
+
+  # Bitbucket Connectivity
+  - alert: BitbucketAPIErrors
+    expr: rate(bitbucket_api_errors_total[5m]) > 0.05
+    for: 5m
+    labels:
+      severity: warning
+      component: integration
+    annotations:
+      summary: "High Bitbucket API error rate"
+      description: "Bitbucket API error rate is {{ $value }} errors/sec."
+
+  - alert: BitbucketAPIDown
+    expr: rate(bitbucket_api_errors_total{error_type="connection"}[5m]) > 0
+    for: 2m
+    labels:
+      severity: critical
+      component: integration
+    annotations:
+      summary: "Cannot connect to Bitbucket API"
+      description: "Bitbucket API connection errors detected."
+
+  # Token Usage
+  - alert: HighTokenUsage
+    expr: rate(tokens_used_total[5m]) > 100000
+    for: 10m
+    labels:
+      severity: warning
+      component: tokenizer
+    annotations:
+      summary: "High token usage rate"
+      description: "Token usage rate is {{ $value }} tokens/sec."
+
+  # Webhook Failures
+  - alert: WebhookFailures
+    expr: rate(webhook_notifications_total{status="failed"}[10m]) > 0.1
+    for: 10m
+    labels:
+      severity: warning
+      component: notifications
+    annotations:
+      summary: "Webhook notification failures"
+      description: "Webhook failure rate is {{ $value }} failures/sec."
