@@ -1,0 +1,52 @@
+{
+  "template_id": "builtin_performance",
+  "name": "Performance Review",
+  "description": "Performance optimization checklist",
+  "category": "performance",
+  "check_items": [
+    {
+      "check_id": "PERF_QUERY",
+      "title": "Database Query Optimization",
+      "description": "Check for N+1 queries and missing indexes",
+      "severity": "high",
+      "required": true,
+      "guidance": "Use eager loading, add indexes, avoid SELECT *",
+      "examples": [
+        "Use .select_related() in Django",
+        "Add database indexes",
+        "Batch queries where possible"
+      ],
+      "metadata": {}
+    },
+    {
+      "check_id": "PERF_CACHE",
+      "title": "Caching Strategy",
+      "description": "Verify appropriate caching is used",
+      "severity": "medium",
+      "required": false,
+      "guidance": "Cache expensive operations, use appropriate TTLs",
+      "examples": [
+        "Redis/Memcached for session data",
+        "HTTP caching headers",
+        "Query result caching"
+      ],
+      "metadata": {}
+    },
+    {
+      "check_id": "PERF_ASYNC",
+      "title": "Asynchronous Processing",
+      "description": "Check for blocking operations that should be async",
+      "severity": "medium",
+      "required": false,
+      "guidance": "Use background jobs for long-running tasks",
+      "examples": [
+        "Email sending",
+        "File processing",
+        "External API calls"
+      ],
+      "metadata": {}
+    }
+  ],
+  "enabled": true,
+  "metadata": {}
+}

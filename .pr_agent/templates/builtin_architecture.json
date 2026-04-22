@@ -1,0 +1,52 @@
+{
+  "template_id": "builtin_architecture",
+  "name": "Architecture Review",
+  "description": "Software architecture and design review",
+  "category": "architecture",
+  "check_items": [
+    {
+      "check_id": "ARCH_SOLID",
+      "title": "SOLID Principles",
+      "description": "Verify adherence to SOLID principles",
+      "severity": "medium",
+      "required": true,
+      "guidance": "Single Responsibility, Open/Closed, Liskov Substitution, Interface Segregation, Dependency Inversion",
+      "examples": [
+        "Classes have single responsibility",
+        "Open for extension, closed for modification",
+        "Depend on abstractions, not concretions"
+      ],
+      "metadata": {}
+    },
+    {
+      "check_id": "ARCH_COUPLING",
+      "title": "Coupling & Cohesion",
+      "description": "Check for tight coupling and low cohesion",
+      "severity": "medium",
+      "required": true,
+      "guidance": "Minimize dependencies between modules, maximize cohesion within modules",
+      "examples": [
+        "Use dependency injection",
+        "Avoid circular dependencies",
+        "Group related functionality"
+      ],
+      "metadata": {}
+    },
+    {
+      "check_id": "ARCH_PATTERNS",
+      "title": "Design Patterns",
+      "description": "Verify appropriate use of design patterns",
+      "severity": "low",
+      "required": false,
+      "guidance": "Use patterns where they add value, avoid over-engineering",
+      "examples": [
+        "Factory for object creation",
+        "Strategy for algorithms",
+        "Observer for event handling"
+      ],
+      "metadata": {}
+    }
+  ],
+  "enabled": true,
+  "metadata": {}
+}

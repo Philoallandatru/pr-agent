@@ -1,0 +1,66 @@
+{
+  "template_id": "builtin_security",
+  "name": "Security Review",
+  "description": "Comprehensive security review checklist",
+  "category": "security",
+  "check_items": [
+    {
+      "check_id": "SEC_AUTH",
+      "title": "Authentication & Authorization",
+      "description": "Verify proper authentication and authorization checks",
+      "severity": "critical",
+      "required": true,
+      "guidance": "Ensure all endpoints require authentication and check user permissions",
+      "examples": [
+        "Check for @require_auth decorators",
+        "Verify role-based access control",
+        "Look for missing permission checks"
+      ],
+      "metadata": {}
+    },
+    {
+      "check_id": "SEC_INPUT",
+      "title": "Input Validation",
+      "description": "Check for proper input validation and sanitization",
+      "severity": "high",
+      "required": true,
+      "guidance": "All user input should be validated and sanitized",
+      "examples": [
+        "SQL injection prevention",
+        "XSS prevention",
+        "Command injection prevention"
+      ],
+      "metadata": {}
+    },
+    {
+      "check_id": "SEC_CRYPTO",
+      "title": "Cryptography",
+      "description": "Verify secure cryptographic practices",
+      "severity": "high",
+      "required": true,
+      "guidance": "Use strong algorithms, proper key management, secure random generation",
+      "examples": [
+        "No hardcoded secrets",
+        "Use bcrypt/argon2 for passwords",
+        "Proper TLS configuration"
+      ],
+      "metadata": {}
+    },
+    {
+      "check_id": "SEC_LOGGING",
+      "title": "Security Logging",
+      "description": "Ensure security events are logged",
+      "severity": "medium",
+      "required": false,
+      "guidance": "Log authentication failures, authorization failures, suspicious activities",
+      "examples": [
+        "Failed login attempts",
+        "Access denied events",
+        "Unusual patterns"
+      ],
+      "metadata": {}
+    }
+  ],
+  "enabled": true,
+  "metadata": {}
+}

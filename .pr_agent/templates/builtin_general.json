@@ -1,0 +1,66 @@
+{
+  "template_id": "builtin_general",
+  "name": "General Code Review",
+  "description": "General purpose code review checklist",
+  "category": "general",
+  "check_items": [
+    {
+      "check_id": "GEN_CORRECTNESS",
+      "title": "Correctness",
+      "description": "Verify code does what it's supposed to do",
+      "severity": "critical",
+      "required": true,
+      "guidance": "Test edge cases, verify business logic",
+      "examples": [
+        "Handles null/empty inputs",
+        "Correct error handling",
+        "Business rules implemented correctly"
+      ],
+      "metadata": {}
+    },
+    {
+      "check_id": "GEN_TESTS",
+      "title": "Test Coverage",
+      "description": "Check for adequate test coverage",
+      "severity": "high",
+      "required": true,
+      "guidance": "Unit tests for business logic, integration tests for workflows",
+      "examples": [
+        "Test happy path",
+        "Test error cases",
+        "Test edge cases"
+      ],
+      "metadata": {}
+    },
+    {
+      "check_id": "GEN_ERROR",
+      "title": "Error Handling",
+      "description": "Verify proper error handling",
+      "severity": "high",
+      "required": true,
+      "guidance": "Catch specific exceptions, provide meaningful error messages",
+      "examples": [
+        "Don't catch generic Exception",
+        "Log errors appropriately",
+        "Return user-friendly messages"
+      ],
+      "metadata": {}
+    },
+    {
+      "check_id": "GEN_DOCS",
+      "title": "Documentation",
+      "description": "Check for adequate documentation",
+      "severity": "medium",
+      "required": false,
+      "guidance": "README, API docs, inline comments where needed",
+      "examples": [
+        "Update README if needed",
+        "Document API changes",
+        "Add migration notes"
+      ],
+      "metadata": {}
+    }
+  ],
+  "enabled": true,
+  "metadata": {}
+}

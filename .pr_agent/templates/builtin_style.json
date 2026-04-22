@@ -1,0 +1,52 @@
+{
+  "template_id": "builtin_style",
+  "name": "Code Style Review",
+  "description": "Code style and readability checklist",
+  "category": "style",
+  "check_items": [
+    {
+      "check_id": "STYLE_NAMING",
+      "title": "Naming Conventions",
+      "description": "Check for clear, consistent naming",
+      "severity": "low",
+      "required": true,
+      "guidance": "Use descriptive names, follow language conventions",
+      "examples": [
+        "snake_case for Python functions",
+        "PascalCase for classes",
+        "UPPER_CASE for constants"
+      ],
+      "metadata": {}
+    },
+    {
+      "check_id": "STYLE_COMMENTS",
+      "title": "Comments & Documentation",
+      "description": "Verify appropriate comments and docstrings",
+      "severity": "low",
+      "required": false,
+      "guidance": "Comment why, not what. Document public APIs",
+      "examples": [
+        "Docstrings for public functions",
+        "Explain complex algorithms",
+        "Document assumptions"
+      ],
+      "metadata": {}
+    },
+    {
+      "check_id": "STYLE_FORMAT",
+      "title": "Code Formatting",
+      "description": "Check code formatting consistency",
+      "severity": "info",
+      "required": false,
+      "guidance": "Use automated formatters (Black, Prettier, etc.)",
+      "examples": [
+        "Consistent indentation",
+        "Line length limits",
+        "Import organization"
+      ],
+      "metadata": {}
+    }
+  ],
+  "enabled": true,
+  "metadata": {}
+}

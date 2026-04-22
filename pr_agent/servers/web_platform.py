@@ -4806,6 +4806,15 @@ from pr_agent.rules import (
     get_engine
 )
 
+from pr_agent.review_templates import (
+    TemplateManager,
+    ReviewTemplate,
+    TemplateCategory,
+    CheckSeverity,
+    CheckItem,
+    get_template_manager
+)
+
 
 class RuleCheckRequest(BaseModel):
     """Request to check file against rules."""
@@ -5125,6 +5134,211 @@ async def import_rules(
 
     except Exception as e:
         get_logger().error(f"Failed to import rules: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Review Templates API
+# ============================================================================
+
+@app.get("/api/review-templates")
+async def list_review_templates(
+    category: Optional[str] = None,
+    enabled_only: bool = False,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """List all review templates."""
+    try:
+        manager = get_template_manager()
+
+        cat = TemplateCategory(category) if category else None
+        templates = manager.list_templates(category=cat, enabled_only=enabled_only)
+
+        return {
+            "templates": [t.to_dict() for t in templates],
+            "count": len(templates)
+        }
+
+    except Exception as e:
+        get_logger().error(f"Failed to list templates: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/review-templates/{template_id}")
+async def get_review_template(
+    template_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get a specific review template."""
+    try:
+        manager = get_template_manager()
+        template = manager.get_template(template_id)
+
+        if not template:
+            raise HTTPException(status_code=404, detail="Template not found")
+
+        return template.to_dict()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to get template: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/review-templates")
+async def create_review_template(
+    template_data: Dict[str, Any],
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Create a new review template."""
+    try:
+        manager = get_template_manager()
+
+        # Parse check items
+        check_items = []
+        for item_data in template_data.get("check_items", []):
+            check_items.append(CheckItem(
+                check_id=item_data["check_id"],
+                title=item_data["title"],
+                description=item_data["description"],
+                severity=CheckSeverity(item_data["severity"]),
+                required=item_data.get("required", True),
+                guidance=item_data.get("guidance", ""),
+                examples=item_data.get("examples", []),
+                metadata=item_data.get("metadata", {})
+            ))
+
+        # Create template
+        template = ReviewTemplate(
+            template_id=template_data["template_id"],
+            name=template_data["name"],
+            description=template_data["description"],
+            category=TemplateCategory(template_data["category"]),
+            check_items=check_items,
+            enabled=template_data.get("enabled", True),
+            metadata=template_data.get("metadata", {})
+        )
+
+        manager.register_template(template)
+
+        return {
+            "message": "Template created successfully",
+            "template_id": template.template_id
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to create template: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/review-templates/{template_id}")
+async def delete_review_template(
+    template_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Delete a review template."""
+    try:
+        manager = get_template_manager()
+
+        if not manager.get_template(template_id):
+            raise HTTPException(status_code=404, detail="Template not found")
+
+        success = manager.unregister_template(template_id)
+
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to delete template")
+
+        return {"message": "Template deleted successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to delete template: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/review-templates/{template_id}/apply")
+async def apply_review_template(
+    template_id: str,
+    request: Dict[str, Any],
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Apply a review template to a file."""
+    try:
+        manager = get_template_manager()
+
+        file_path = request.get("file_path")
+        content = request.get("content")
+        context = request.get("context", {})
+
+        if not file_path or not content:
+            raise HTTPException(
+                status_code=400,
+                detail="file_path and content are required"
+            )
+
+        result = manager.apply_template(
+            template_id=template_id,
+            file_path=file_path,
+            content=content,
+            context=context
+        )
+
+        return {
+            "template_id": result.template_id,
+            "template_name": result.template_name,
+            "file_path": result.file_path,
+            "summary": result.get_summary(),
+            "findings": result.findings
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to apply template: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/review-templates/export")
+async def export_review_templates(
+    template_ids: Optional[str] = None,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Export review templates to JSON."""
+    try:
+        manager = get_template_manager()
+
+        ids = template_ids.split(",") if template_ids else None
+        export_data = manager.export_templates(template_ids=ids)
+
+        return export_data
+
+    except Exception as e:
+        get_logger().error(f"Failed to export templates: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/review-templates/import")
+async def import_review_templates(
+    import_data: Dict[str, Any],
+    overwrite: bool = False,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Import review templates from JSON."""
+    try:
+        manager = get_template_manager()
+        manager.import_templates(import_data, overwrite=overwrite)
+
+        return {
+            "message": "Templates imported successfully",
+            "count": len(import_data.get("templates", []))
+        }
+
+    except Exception as e:
+        get_logger().error(f"Failed to import templates: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
