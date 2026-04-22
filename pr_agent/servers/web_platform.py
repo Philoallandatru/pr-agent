@@ -38,6 +38,7 @@ from pr_agent.audit import get_audit_logger, AuditEventType, AuditSeverity
 from pr_agent.servers.log_stream import init_log_streaming, handle_log_stream, get_log_stream_manager
 from pr_agent.backup import BackupManager
 from pr_agent.plugins import PluginManager
+from pr_agent.models import get_model_manager, ModelType, ModelStatus
 from strawberry.fastapi import GraphQLRouter
 from pr_agent.graphql import schema
 
@@ -1557,6 +1558,289 @@ async def get_plugin_info(
         return plugin.get_metadata()
     except Exception as e:
         get_logger().error(f"Failed to get plugin info: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# AI Model Management Endpoints
+# ============================================================================
+
+@app.get("/api/models")
+async def list_models(
+    status: Optional[str] = None,
+    model_type: Optional[str] = None,
+    provider: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
+):
+    """List all AI models with optional filtering."""
+    try:
+        model_manager = get_model_manager()
+
+        # Parse filters
+        status_filter = ModelStatus(status) if status else None
+        type_filter = ModelType(model_type) if model_type else None
+
+        models = model_manager.list_models(
+            status=status_filter,
+            model_type=type_filter,
+            provider=provider
+        )
+
+        return [model.to_dict() for model in models]
+    except Exception as e:
+        get_logger().error(f"Failed to list models: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/models")
+async def register_model(
+    model_data: Dict,
+    current_user: User = Depends(require_role("admin"))
+):
+    """Register a new AI model."""
+    try:
+        model_manager = get_model_manager()
+
+        model = model_manager.register_model(
+            model_id=model_data["model_id"],
+            name=model_data["name"],
+            provider=model_data["provider"],
+            model_type=ModelType(model_data["model_type"]),
+            version=model_data["version"],
+            config=model_data.get("config", {}),
+            tags=model_data.get("tags", [])
+        )
+
+        get_audit_logger().log(
+            event_type=AuditEventType.CONFIG_UPDATED,
+            user_id=current_user.username,
+            severity=AuditSeverity.INFO,
+            details={"action": "register_model", "model_id": model.model_id}
+        )
+
+        return model.to_dict()
+    except Exception as e:
+        get_logger().error(f"Failed to register model: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/models/{model_id}")
+async def get_model(
+    model_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Get model by ID."""
+    try:
+        model_manager = get_model_manager()
+        model = model_manager.get_model(model_id)
+
+        if not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+
+        return model.to_dict()
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to get model: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.put("/api/models/{model_id}")
+async def update_model(
+    model_id: str,
+    updates: Dict,
+    current_user: User = Depends(require_role("admin"))
+):
+    """Update model configuration."""
+    try:
+        model_manager = get_model_manager()
+
+        # Convert string enums if present
+        if "status" in updates:
+            updates["status"] = ModelStatus(updates["status"])
+        if "model_type" in updates:
+            updates["model_type"] = ModelType(updates["model_type"])
+
+        model = model_manager.update_model(model_id, **updates)
+
+        get_audit_logger().log(
+            event_type=AuditEventType.CONFIG_UPDATED,
+            user_id=current_user.username,
+            severity=AuditSeverity.INFO,
+            details={"action": "update_model", "model_id": model_id, "updates": list(updates.keys())}
+        )
+
+        return model.to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        get_logger().error(f"Failed to update model: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/models/{model_id}")
+async def delete_model(
+    model_id: str,
+    current_user: User = Depends(require_role("admin"))
+):
+    """Delete a model."""
+    try:
+        model_manager = get_model_manager()
+        model_manager.delete_model(model_id)
+
+        get_audit_logger().log(
+            event_type=AuditEventType.CONFIG_UPDATED,
+            user_id=current_user.username,
+            severity=AuditSeverity.WARNING,
+            details={"action": "delete_model", "model_id": model_id}
+        )
+
+        return {"message": f"Model {model_id} deleted successfully"}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        get_logger().error(f"Failed to delete model: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/models/{model_id}/activate")
+async def activate_model(
+    model_id: str,
+    current_user: User = Depends(require_role("admin"))
+):
+    """Set model as active."""
+    try:
+        model_manager = get_model_manager()
+        model_manager.set_active_model(model_id)
+
+        get_audit_logger().log(
+            event_type=AuditEventType.CONFIG_UPDATED,
+            user_id=current_user.username,
+            severity=AuditSeverity.INFO,
+            details={"action": "activate_model", "model_id": model_id}
+        )
+
+        return {"message": f"Model {model_id} activated successfully"}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        get_logger().error(f"Failed to activate model: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/models/{model_id}/metrics")
+async def get_model_metrics(
+    model_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Get model performance metrics."""
+    try:
+        model_manager = get_model_manager()
+        metrics = model_manager.get_metrics(model_id)
+
+        if not metrics:
+            raise HTTPException(status_code=404, detail="Model not found")
+
+        from dataclasses import asdict
+        return asdict(metrics)
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to get model metrics: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/models/{model_id}/health")
+async def check_model_health(
+    model_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Check model health status."""
+    try:
+        model_manager = get_model_manager()
+        health = await model_manager.check_health(model_id)
+        return health
+    except Exception as e:
+        get_logger().error(f"Failed to check model health: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/ab-tests")
+async def create_ab_test(
+    test_data: Dict,
+    current_user: User = Depends(require_role("admin"))
+):
+    """Create an A/B test."""
+    try:
+        model_manager = get_model_manager()
+
+        test = model_manager.create_ab_test(
+            test_id=test_data["test_id"],
+            models=test_data["models"],
+            traffic_split=test_data["traffic_split"]
+        )
+
+        get_audit_logger().log(
+            event_type=AuditEventType.CONFIG_UPDATED,
+            user_id=current_user.username,
+            severity=AuditSeverity.INFO,
+            details={"action": "create_ab_test", "test_id": test.test_id}
+        )
+
+        return test.get_results()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        get_logger().error(f"Failed to create A/B test: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/ab-tests/{test_id}")
+async def get_ab_test(
+    test_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Get A/B test results."""
+    try:
+        model_manager = get_model_manager()
+        test = model_manager.get_ab_test(test_id)
+
+        if not test:
+            raise HTTPException(status_code=404, detail="A/B test not found")
+
+        return test.get_results()
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to get A/B test: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/ab-tests/{test_id}/end")
+async def end_ab_test(
+    test_id: str,
+    winner_data: Optional[Dict] = None,
+    current_user: User = Depends(require_role("admin"))
+):
+    """End an A/B test."""
+    try:
+        model_manager = get_model_manager()
+        winner_model_id = winner_data.get("winner_model_id") if winner_data else None
+
+        model_manager.end_ab_test(test_id, winner_model_id)
+
+        get_audit_logger().log(
+            event_type=AuditEventType.CONFIG_UPDATED,
+            user_id=current_user.username,
+            severity=AuditSeverity.INFO,
+            details={"action": "end_ab_test", "test_id": test_id, "winner": winner_model_id}
+        )
+
+        return {"message": f"A/B test {test_id} ended successfully", "winner": winner_model_id}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        get_logger().error(f"Failed to end A/B test: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
