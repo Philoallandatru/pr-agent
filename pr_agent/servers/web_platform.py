@@ -3863,5 +3863,132 @@ async def configure_workflow(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ============================================================================
+# Impact Analysis API
+# ============================================================================
+
+from pr_agent.impact import (
+    ImpactAnalyzer,
+    ChangeType,
+    RiskLevel,
+)
+
+
+class ImpactAnalysisRequest(BaseModel):
+    """Request for impact analysis."""
+    changed_files: List[str]
+    repo_path: Optional[str] = None
+    include_tests: bool = True
+    max_depth: int = 3
+
+
+@app.post("/api/impact/analyze")
+async def analyze_impact(
+    request: ImpactAnalysisRequest,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """
+    Analyze the impact of code changes.
+
+    Returns impact analysis including:
+    - Changed files details
+    - Impacted files (direct and indirect)
+    - Affected tests
+    - Risk assessment
+    - Dependency graph
+    """
+    try:
+        # Use provided repo path or default to current directory
+        repo_path = request.repo_path or os.getcwd()
+
+        # Create analyzer
+        analyzer = ImpactAnalyzer(repo_path)
+
+        # Analyze changes
+        result = analyzer.analyze_changes(
+            changed_files=request.changed_files,
+            include_tests=request.include_tests,
+            max_depth=request.max_depth
+        )
+
+        # Format response
+        return {
+            "analysis_time": result.analysis_time.isoformat(),
+            "changes": [
+                {
+                    "file_path": c.file_path,
+                    "change_type": c.change_type.value,
+                    "lines_added": c.lines_added,
+                    "lines_deleted": c.lines_deleted,
+                    "functions_changed": c.functions_changed,
+                    "classes_changed": c.classes_changed
+                }
+                for c in result.changes
+            ],
+            "impacted_files": [
+                {
+                    "file_path": f.file_path,
+                    "impact_type": f.impact_type,
+                    "distance": f.distance,
+                    "reason": f.reason
+                }
+                for f in result.impacted_files
+            ],
+            "affected_tests": result.affected_tests,
+            "risk_assessment": {
+                "level": result.risk_assessment.level.value,
+                "score": result.risk_assessment.score,
+                "factors": result.risk_assessment.factors,
+                "recommendations": result.risk_assessment.recommendations
+            },
+            "dependency_graph": result.dependency_graph,
+            "metadata": result.metadata
+        }
+
+    except Exception as e:
+        get_logger().error(f"Failed to analyze impact: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/impact/visualize")
+async def visualize_impact(
+    request: ImpactAnalysisRequest,
+    format: str = "text",
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """
+    Visualize impact analysis results.
+
+    Supported formats:
+    - text: Human-readable text report
+    - dot: GraphViz DOT format
+    """
+    try:
+        # Use provided repo path or default to current directory
+        repo_path = request.repo_path or os.getcwd()
+
+        # Create analyzer
+        analyzer = ImpactAnalyzer(repo_path)
+
+        # Analyze changes
+        result = analyzer.analyze_changes(
+            changed_files=request.changed_files,
+            include_tests=request.include_tests,
+            max_depth=request.max_depth
+        )
+
+        # Generate visualization
+        visualization = analyzer.visualize_impact(result, output_format=format)
+
+        return {
+            "format": format,
+            "content": visualization
+        }
+
+    except Exception as e:
+        get_logger().error(f"Failed to visualize impact: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     start()
