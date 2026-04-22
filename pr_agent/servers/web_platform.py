@@ -5659,6 +5659,16 @@ from pr_agent.bot import (
     ReviewMode
 )
 
+from pr_agent.review_collaboration import (
+    CollaborationSystem,
+    ParticipantRole,
+    CommentType as CollabCommentType,
+    CommentStatus,
+    TaskStatus,
+    DecisionStatus,
+    get_collaboration_system,
+)
+
 
 @app.post("/api/notifications/templates")
 async def create_notification_template(
@@ -7014,6 +7024,212 @@ async def add_custom_checker(
         }
     except Exception as e:
         get_logger().error(f"Failed to add custom checker: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Review Collaboration System APIs
+@app.post("/api/review-collaboration/sessions")
+async def create_review_session(
+    request: dict,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Create a new review collaboration session."""
+    try:
+        system = get_collaboration_system()
+        session = system.create_session(
+            session_id=request["session_id"],
+            pr_id=request["pr_id"],
+            repository=request["repository"],
+            title=request.get("title", ""),
+            description=request.get("description", "")
+        )
+        return {
+            "session_id": session.session_id,
+            "pr_id": session.pr_id,
+            "repository": session.repository,
+            "status": session.status.value,
+            "created_at": session.created_at
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to create review session: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/review-collaboration/sessions/{session_id}")
+async def get_review_session(
+    session_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get review session details."""
+    try:
+        system = get_collaboration_system()
+        session = system.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        return {
+            "session_id": session.session_id,
+            "pr_id": session.pr_id,
+            "repository": session.repository,
+            "title": session.title,
+            "description": session.description,
+            "status": session.status.value,
+            "participants": [
+                {
+                    "user_id": p.user_id,
+                    "role": p.role.value,
+                    "status": p.status.value
+                }
+                for p in session.participants
+            ],
+            "comments_count": len(session.comments),
+            "tasks_count": len(session.tasks),
+            "created_at": session.created_at,
+            "ended_at": session.ended_at
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        get_logger().error(f"Failed to get review session: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/review-collaboration/sessions/{session_id}/participants")
+async def add_session_participant(
+    session_id: str,
+    request: dict,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Add a participant to review session."""
+    try:
+        system = get_collaboration_system()
+        from pr_agent.review_collaboration import ParticipantRole
+
+        system.add_participant(
+            session_id=session_id,
+            user_id=request["user_id"],
+            role=ParticipantRole[request.get("role", "REVIEWER").upper()]
+        )
+        return {"status": "success"}
+    except Exception as e:
+        get_logger().error(f"Failed to add participant: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/review-collaboration/sessions/{session_id}/comments")
+async def add_session_comment(
+    session_id: str,
+    request: dict,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Add a comment to review session."""
+    try:
+        system = get_collaboration_system()
+        from pr_agent.review_collaboration import CommentType
+
+        comment = system.add_comment(
+            session_id=session_id,
+            comment_id=request["comment_id"],
+            author=request["author"],
+            content=request["content"],
+            comment_type=CommentType[request.get("type", "GENERAL").upper()],
+            file_path=request.get("file_path"),
+            line_number=request.get("line_number"),
+            parent_id=request.get("parent_id")
+        )
+        return {
+            "comment_id": comment.comment_id,
+            "author": comment.author,
+            "type": comment.comment_type.value,
+            "created_at": comment.created_at
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to add comment: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/review-collaboration/sessions/{session_id}/tasks")
+async def create_session_task(
+    session_id: str,
+    request: dict,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Create a task in review session."""
+    try:
+        system = get_collaboration_system()
+        from pr_agent.review_collaboration import TaskPriority
+
+        task = system.create_task(
+            session_id=session_id,
+            task_id=request["task_id"],
+            title=request["title"],
+            description=request.get("description", ""),
+            assignee=request.get("assignee"),
+            priority=TaskPriority[request.get("priority", "MEDIUM").upper()]
+        )
+        return {
+            "task_id": task.task_id,
+            "title": task.title,
+            "status": task.status.value,
+            "priority": task.priority.value,
+            "created_at": task.created_at
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to create task: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/review-collaboration/sessions/{session_id}/comments/{comment_id}/vote")
+async def vote_on_comment(
+    session_id: str,
+    comment_id: str,
+    request: dict,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Vote on a comment."""
+    try:
+        system = get_collaboration_system()
+        from pr_agent.review_collaboration import VoteType
+
+        system.vote_on_comment(
+            session_id=session_id,
+            comment_id=comment_id,
+            user_id=request["user_id"],
+            vote_type=VoteType[request["vote_type"].upper()]
+        )
+        return {"status": "success"}
+    except Exception as e:
+        get_logger().error(f"Failed to vote on comment: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/review-collaboration/sessions/{session_id}/stats")
+async def get_session_stats(
+    session_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get session statistics."""
+    try:
+        system = get_collaboration_system()
+        stats = system.get_session_stats(session_id)
+        return stats
+    except Exception as e:
+        get_logger().error(f"Failed to get session stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/review-collaboration/sessions/{session_id}/end")
+async def end_review_session(
+    session_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """End a review session."""
+    try:
+        system = get_collaboration_system()
+        system.end_session(session_id)
+        return {"status": "success"}
+    except Exception as e:
+        get_logger().error(f"Failed to end session: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
