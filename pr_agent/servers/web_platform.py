@@ -33,6 +33,7 @@ from pr_agent.servers import tenant_routes
 from pr_agent.ratelimit import RateLimiter, QuotaManager
 from pr_agent.ratelimit.middleware import RateLimitMiddleware, QuotaMiddleware
 from pr_agent.health import HealthChecker
+from pr_agent.config.hot_reload import get_hot_reload_manager
 
 # Initialize structured logger
 structured_logger = StructuredLogger(__name__)
@@ -169,6 +170,17 @@ db = Database()
 
 # Tenant manager instance
 tenant_manager = TenantManager(db.db_path)
+
+# Initialize hot reload manager
+hot_reload_manager = None
+if get_settings().get("config.hot_reload_enabled", False):
+    config_path = os.path.join(os.path.dirname(__file__), "..", "settings", "configuration.toml")
+    hot_reload_manager = get_hot_reload_manager(
+        config_path=config_path,
+        check_interval=get_settings().get("config.hot_reload_interval", 5.0)
+    )
+    hot_reload_manager.start()
+    structured_logger.info("Configuration hot reload enabled")
 
 # Initialize health checker
 health_checker = HealthChecker(
@@ -914,6 +926,104 @@ async def get_config(current_user: User = Depends(get_current_user_or_api_key)):
         return config
     except Exception as e:
         get_logger().error(f"Failed to get config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/config/reload")
+async def reload_config(current_user: User = Depends(require_role("admin"))):
+    """Manually trigger configuration reload (admin only)"""
+    if not hot_reload_manager:
+        raise HTTPException(status_code=503, detail="Hot reload not enabled")
+
+    try:
+        # Trigger manual reload by calling the watcher's reload method
+        hot_reload_manager.watcher._trigger_reload()
+
+        structured_logger.info("Manual config reload triggered", user=current_user.username)
+
+        return {
+            "status": "success",
+            "message": "Configuration reloaded successfully",
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to reload config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/config/reload/status")
+async def get_reload_status(current_user: User = Depends(get_current_user_or_api_key)):
+    """Get hot reload status and history"""
+    if not hot_reload_manager:
+        return {
+            "enabled": False,
+            "message": "Hot reload not enabled"
+        }
+
+    try:
+        status = hot_reload_manager.get_status()
+        history = hot_reload_manager.get_reload_history(limit=10)
+
+        return {
+            "enabled": True,
+            "status": status,
+            "recent_reloads": history
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to get reload status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/config/reload/enable")
+async def enable_hot_reload(current_user: User = Depends(require_role("admin"))):
+    """Enable hot reload at runtime (admin only)"""
+    global hot_reload_manager
+
+    if hot_reload_manager and hot_reload_manager.watcher.is_running:
+        return {
+            "status": "already_enabled",
+            "message": "Hot reload is already enabled"
+        }
+
+    try:
+        config_path = os.path.join(os.path.dirname(__file__), "..", "settings", "configuration.toml")
+
+        if not hot_reload_manager:
+            hot_reload_manager = get_hot_reload_manager(config_path)
+
+        hot_reload_manager.start()
+
+        structured_logger.info("Hot reload enabled at runtime", user=current_user.username)
+
+        return {
+            "status": "success",
+            "message": "Hot reload enabled successfully"
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to enable hot reload: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/config/reload/disable")
+async def disable_hot_reload(current_user: User = Depends(require_role("admin"))):
+    """Disable hot reload at runtime (admin only)"""
+    if not hot_reload_manager:
+        return {
+            "status": "already_disabled",
+            "message": "Hot reload is not enabled"
+        }
+
+    try:
+        hot_reload_manager.stop()
+
+        structured_logger.info("Hot reload disabled at runtime", user=current_user.username)
+
+        return {
+            "status": "success",
+            "message": "Hot reload disabled successfully"
+        }
+    except Exception as e:
+        get_logger().error(f"Failed to disable hot reload: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
