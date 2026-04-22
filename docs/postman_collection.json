@@ -1,0 +1,434 @@
+{
+  "info": {
+    "name": "PR-Agent API",
+    "description": "Enterprise-grade code review automation platform",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_postman_id": "pr-agent-api-collection",
+    "version": "1.0.0"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{jwt_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "jwt_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "api_key",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"admin\",\n  \"password\": \"admin123\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "login"]
+            },
+            "description": "Login with username and password to get JWT token"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Current User",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/auth/me",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "me"]
+            },
+            "description": "Get current authenticated user information"
+          },
+          "response": []
+        },
+        {
+          "name": "Create API Key",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"ci-pipeline\",\n  \"permissions\": [\"read\", \"write\"],\n  \"expires_days\": 365\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/api-keys",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "api-keys"]
+            },
+            "description": "Create a new API key (admin only)"
+          },
+          "response": []
+        },
+        {
+          "name": "List API Keys",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/auth/api-keys",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "api-keys"]
+            },
+            "description": "List all API keys (admin only)"
+          },
+          "response": []
+        },
+        {
+          "name": "Revoke API Key",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/auth/api-keys/pak_123",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "api-keys", "pak_123"]
+            },
+            "description": "Revoke an API key (admin only)"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Repositories",
+      "item": [
+        {
+          "name": "List Repositories",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/repositories",
+              "host": ["{{base_url}}"],
+              "path": ["api", "repositories"]
+            },
+            "description": "Get all configured repositories"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Repository",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/repositories/1",
+              "host": ["{{base_url}}"],
+              "path": ["api", "repositories", "1"]
+            },
+            "description": "Get a specific repository by ID"
+          },
+          "response": []
+        },
+        {
+          "name": "Create Repository",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"project_key\": \"PROJ\",\n  \"repo_slug\": \"backend-api\",\n  \"name\": \"Backend API\",\n  \"url\": \"https://bitbucket.example.com/projects/PROJ/repos/backend-api\",\n  \"enabled\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/repositories",
+              "host": ["{{base_url}}"],
+              "path": ["api", "repositories"]
+            },
+            "description": "Create a new repository configuration"
+          },
+          "response": []
+        },
+        {
+          "name": "Update Repository",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"enabled\": false\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/repositories/1",
+              "host": ["{{base_url}}"],
+              "path": ["api", "repositories", "1"]
+            },
+            "description": "Update repository configuration"
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Repository",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/repositories/1",
+              "host": ["{{base_url}}"],
+              "path": ["api", "repositories", "1"]
+            },
+            "description": "Delete a repository configuration"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Reviews",
+      "item": [
+        {
+          "name": "List Reviews",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/reviews?repository_id=1&status=completed&limit=50",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reviews"],
+              "query": [
+                {
+                  "key": "repository_id",
+                  "value": "1"
+                },
+                {
+                  "key": "status",
+                  "value": "completed"
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                }
+              ]
+            },
+            "description": "Get PR review history with optional filters"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Review",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/reviews/1",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reviews", "1"]
+            },
+            "description": "Get a specific review by ID"
+          },
+          "response": []
+        },
+        {
+          "name": "Create Review",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"repository_id\": 1,\n  \"pr_number\": 123,\n  \"pr_title\": \"Add new feature\",\n  \"pr_author\": \"john.doe\",\n  \"pr_url\": \"https://bitbucket.example.com/pr/123\",\n  \"commands\": [\"/describe\", \"/review\"]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/reviews",
+              "host": ["{{base_url}}"],
+              "path": ["api", "reviews"]
+            },
+            "description": "Create a new review record"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Prompts",
+      "item": [
+        {
+          "name": "List Prompts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/prompts",
+              "host": ["{{base_url}}"],
+              "path": ["api", "prompts"]
+            },
+            "description": "Get all prompt templates"
+          },
+          "response": []
+        },
+        {
+          "name": "Create Prompt",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"security-review\",\n  \"command\": \"/review\",\n  \"content\": \"Focus on security vulnerabilities and best practices...\",\n  \"is_active\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/prompts",
+              "host": ["{{base_url}}"],
+              "path": ["api", "prompts"]
+            },
+            "description": "Create a new prompt template"
+          },
+          "response": []
+        },
+        {
+          "name": "Update Prompt",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"Updated prompt content...\",\n  \"is_active\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/prompts/1",
+              "host": ["{{base_url}}"],
+              "path": ["api", "prompts", "1"]
+            },
+            "description": "Update a prompt template"
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Prompt",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/prompts/1",
+              "host": ["{{base_url}}"],
+              "path": ["api", "prompts", "1"]
+            },
+            "description": "Delete a prompt template"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Monitoring",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/health",
+              "host": ["{{base_url}}"],
+              "path": ["api", "health"]
+            },
+            "description": "Check API health status"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Statistics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/statistics",
+              "host": ["{{base_url}}"],
+              "path": ["api", "statistics"]
+            },
+            "description": "Get system statistics"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Metrics (JSON)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/metrics",
+              "host": ["{{base_url}}"],
+              "path": ["api", "metrics"]
+            },
+            "description": "Get metrics in JSON format"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Metrics (Prometheus)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/metrics",
+              "host": ["{{base_url}}"],
+              "path": ["metrics"]
+            },
+            "description": "Get metrics in Prometheus format"
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

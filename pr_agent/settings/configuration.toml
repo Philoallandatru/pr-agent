@@ -198,6 +198,25 @@ enable_help_text=false
 [pr_improve_component] # /improve_component #
 num_code_suggestions=4
 extra_instructions = ""
+
+[tokenizer]
+local_cache_dir = ""  # Custom tokenizer storage path (e.g., "/opt/pr-agent/tokenizers")
+enable_local_cache = false
+fallback_to_download = true  # Set to false for strict offline mode in internal networks
+
+[repo_context]
+enable_full_context = false  # Enable full repository context analysis
+clone_depth = 1  # Shallow clone for performance
+clone_cache_dir = "/tmp/pr-agent-repos"  # Directory for cloned repositories
+max_related_files = 20  # Maximum number of related files to include
+max_context_tokens = 10000  # Token budget for additional context
+supported_languages = ["python", "javascript", "typescript", "java", "go"]  # Languages to analyze
+
+[web_platform]
+enable = false  # Enable web management platform
+host = "0.0.0.0"
+port = 8080
+database_path = "pr_agent.db"  # SQLite database path
 file = ""              # in case there are several components with the same name, you can specify the relevant file
 class_name = ""        # in case there are several methods with the same name in the same file, you can specify the relevant class name
 
@@ -291,6 +310,27 @@ pr_commands = [
 ]
 avoid_full_files = false
 
+[bitbucket_server]
+url = ""
+# Webhook settings
+pr_commands = [
+    "/describe --pr_description.final_update_message=false",
+    "/review",
+    "/improve --pr_code_suggestions.commitable_code_suggestions=true",
+]
+# Polling settings
+enable_polling = false
+polling_interval_seconds = 300  # 5 minutes
+polling_repositories = []  # List of "PROJECT/repo-slug" to monitor
+# polling_repositories = ["PROJ/backend-api", "PROJ/frontend-app"]
+polling_commands = [
+    "/describe --pr_description.final_update_message=false",
+    "/review",
+    "/improve --pr_code_suggestions.commitable_code_suggestions=true",
+]
+polling_state_file = ".pr_agent_polling_state.json"
+max_parallel_tasks = 10
+
 [local]
 # LocalGitProvider settings - uncomment to use paths other than default
 # description_path= "path/to/description.md"
@@ -374,3 +414,57 @@ pr_commands = [
     "/review",
     "/improve",
 ]
+
+[webhook]
+# Webhook notification settings
+enabled = false
+timeout = 10
+retry_count = 3
+
+# Slack
+slack_enabled = false
+slack_url = ""
+
+# DingTalk (钉钉)
+dingtalk_enabled = false
+dingtalk_url = ""
+dingtalk_secret = ""
+
+# WeCom (企业微信)
+wecom_enabled = false
+wecom_url = ""
+
+# Custom webhooks
+custom_urls = []
+
+# Notification events to send
+notify_review_started = true
+notify_review_completed = true
+notify_review_failed = true
+notify_pr_approved = false
+notify_pr_rejected = false
+
+[cache]
+# Cache settings for performance optimization
+enabled = false
+backend = "redis"  # "redis" or "memory"
+
+# Redis configuration
+redis_host = "localhost"
+redis_port = 6379
+redis_db = 0
+redis_password = ""
+timeout = 5
+
+# Cache TTL (time to live) in seconds
+ttl_pr_data = 300        # 5 minutes
+ttl_file_content = 600   # 10 minutes
+ttl_repository = 1800    # 30 minutes
+ttl_review_result = 3600 # 1 hour
+
+# Cache key prefixes
+key_prefix = "pr-agent"
+
+# Cache size limits (for memory backend)
+max_memory_items = 1000
+max_memory_size_mb = 100
