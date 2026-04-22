@@ -61,6 +61,8 @@ class AuditEventType(str, Enum):
     SERVICE_STARTED = "service_started"
     SERVICE_STOPPED = "service_stopped"
     BACKUP_CREATED = "backup_created"
+    BACKUP_RESTORED = "backup_restored"
+    BACKUP_DELETED = "backup_deleted"
     MIGRATION_EXECUTED = "migration_executed"
 
 

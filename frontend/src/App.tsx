@@ -9,6 +9,7 @@ import Reviews from './pages/Reviews';
 import Prompts from './pages/Prompts';
 import Config from './pages/Config';
 import Logs from './pages/Logs';
+import Backups from './pages/Backups';
 import Login from './pages/Login';
 
 function App() {
@@ -30,6 +31,7 @@ function App() {
                     <Route path="/prompts" element={<Prompts />} />
                     <Route path="/config" element={<Config />} />
                     <Route path="/logs" element={<Logs />} />
+                    <Route path="/backups" element={<Backups />} />
                   </Routes>
                 </Layout>
               </Box>

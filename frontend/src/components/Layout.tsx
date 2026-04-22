@@ -26,6 +26,7 @@ import {
   Edit as EditIcon,
   Settings as SettingsIcon,
   Article as ArticleIcon,
+  Backup as BackupIcon,
   AccountCircle,
   Logout,
 } from '@mui/icons-material';
@@ -40,6 +41,7 @@ const menuItems = [
   { text: 'Prompt Editor', icon: <EditIcon />, path: '/prompts' },
   { text: 'Configuration', icon: <SettingsIcon />, path: '/config' },
   { text: 'Logs', icon: <ArticleIcon />, path: '/logs' },
+  { text: 'Backups', icon: <BackupIcon />, path: '/backups' },
 ];
 
 interface LayoutProps {

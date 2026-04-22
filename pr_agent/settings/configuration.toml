@@ -489,3 +489,19 @@ default_users = 5
 
 # Quota reset schedule
 reset_schedule = "monthly"  # "daily", "weekly", "monthly"
+
+[backup]
+# Backup and restore configuration
+directory = "./backups"
+max_backups = 30  # Maximum number of backups to keep
+compression = "gz"  # Compression format: "gz", "bz2", or "xz"
+
+# Automatic backup schedule (cron format)
+auto_backup_enabled = false
+auto_backup_schedule = "0 2 * * *"  # Daily at 2 AM
+
+# What to include in automatic backups
+auto_backup_include_db = true
+auto_backup_include_config = true
+auto_backup_include_cache = false
+auto_backup_include_logs = false

@@ -36,6 +36,7 @@ from pr_agent.health import HealthChecker
 from pr_agent.config.hot_reload import get_hot_reload_manager
 from pr_agent.audit import get_audit_logger, AuditEventType, AuditSeverity
 from pr_agent.servers.log_stream import init_log_streaming, handle_log_stream, get_log_stream_manager
+from pr_agent.backup import BackupManager
 
 # Initialize structured logger
 structured_logger = StructuredLogger(__name__)
@@ -1326,6 +1327,151 @@ async def startup_event():
     """Initialize services on startup."""
     init_log_streaming()
     structured_logger.info("Web platform started successfully")
+
+
+# Backup and restore endpoints
+backup_manager = BackupManager()
+
+
+class BackupCreate(BaseModel):
+    include_db: bool = True
+    include_config: bool = True
+    include_cache: bool = False
+    include_logs: bool = False
+    description: Optional[str] = None
+
+
+class BackupRestore(BaseModel):
+    restore_db: bool = True
+    restore_config: bool = True
+    restore_cache: bool = False
+    restore_logs: bool = False
+    create_backup_before_restore: bool = True
+
+
+@app.post("/api/backups")
+async def create_backup(
+    backup_request: BackupCreate,
+    current_user: User = Depends(require_role("admin"))
+):
+    """Create a new backup (admin only)."""
+    try:
+        backup_path = backup_manager.create_backup(
+            include_db=backup_request.include_db,
+            include_config=backup_request.include_config,
+            include_cache=backup_request.include_cache,
+            include_logs=backup_request.include_logs,
+            description=backup_request.description,
+        )
+
+        audit_logger.log(
+            event_type=AuditEventType.BACKUP_CREATED,
+            user_id=current_user.username,
+            severity=AuditSeverity.INFO,
+            details={"backup_path": backup_path, "description": backup_request.description},
+        )
+
+        return {"message": "Backup created successfully", "backup_path": backup_path}
+
+    except Exception as e:
+        get_logger().error(f"Failed to create backup: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/backups")
+async def list_backups(current_user: User = Depends(require_role("admin"))):
+    """List all available backups (admin only)."""
+    try:
+        backups = backup_manager.list_backups()
+        return {"backups": backups}
+    except Exception as e:
+        get_logger().error(f"Failed to list backups: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/backups/{backup_id}")
+async def get_backup_info(
+    backup_id: str,
+    current_user: User = Depends(require_role("admin"))
+):
+    """Get detailed information about a backup (admin only)."""
+    try:
+        backup_path = backup_manager.backup_dir / f"backup_{backup_id}.tar.{backup_manager.compression}"
+        info = backup_manager.get_backup_info(str(backup_path))
+        return info
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Backup not found")
+    except Exception as e:
+        get_logger().error(f"Failed to get backup info: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/backups/{backup_id}/restore")
+async def restore_backup(
+    backup_id: str,
+    restore_request: BackupRestore,
+    current_user: User = Depends(require_role("admin"))
+):
+    """Restore from a backup (admin only)."""
+    try:
+        backup_path = backup_manager.backup_dir / f"backup_{backup_id}.tar.{backup_manager.compression}"
+
+        if not backup_path.exists():
+            raise HTTPException(status_code=404, detail="Backup not found")
+
+        backup_manager.restore_backup(
+            backup_path=str(backup_path),
+            restore_db=restore_request.restore_db,
+            restore_config=restore_request.restore_config,
+            restore_cache=restore_request.restore_cache,
+            restore_logs=restore_request.restore_logs,
+            create_backup_before_restore=restore_request.create_backup_before_restore,
+        )
+
+        audit_logger.log(
+            event_type=AuditEventType.BACKUP_RESTORED,
+            user_id=current_user.username,
+            severity=AuditSeverity.WARNING,
+            details={"backup_id": backup_id, "backup_path": str(backup_path)},
+        )
+
+        return {"message": "Backup restored successfully"}
+
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Backup not found")
+    except Exception as e:
+        get_logger().error(f"Failed to restore backup: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/backups/{backup_id}")
+async def delete_backup(
+    backup_id: str,
+    current_user: User = Depends(require_role("admin"))
+):
+    """Delete a backup (admin only)."""
+    try:
+        backup_path = backup_manager.backup_dir / f"backup_{backup_id}.tar.{backup_manager.compression}"
+
+        if not backup_path.exists():
+            raise HTTPException(status_code=404, detail="Backup not found")
+
+        backup_manager.delete_backup(str(backup_path))
+
+        audit_logger.log(
+            event_type=AuditEventType.BACKUP_DELETED,
+            user_id=current_user.username,
+            severity=AuditSeverity.INFO,
+            details={"backup_id": backup_id},
+        )
+
+        return {"message": "Backup deleted successfully"}
+
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Backup not found")
+    except Exception as e:
+        get_logger().error(f"Failed to delete backup: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":
