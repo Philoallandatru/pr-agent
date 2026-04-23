@@ -102,6 +102,14 @@ from pr_agent.notification_enhanced import (
     NotificationPriority,
     NotificationStatus,
 )
+from pr_agent.orchestration import (
+    get_orchestration_engine,
+    WorkflowDefinition,
+    TaskDefinition,
+    TaskType,
+    WorkflowStatus,
+    TaskStatus,
+)
 from strawberry.fastapi import GraphQLRouter
 from pr_agent.graphql import schema
 
@@ -8383,6 +8391,201 @@ async def list_notification_rules(
         }
     except Exception as e:
         structured_logger.error("Failed to list rules", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Orchestration Engine API
+@app.post("/api/orchestration/workflows")
+async def create_workflow(
+    workflow_data: Dict[str, Any],
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Create a new workflow definition"""
+    try:
+        engine = get_orchestration_engine()
+
+        # Parse tasks
+        tasks = []
+        for task_data in workflow_data.get("tasks", []):
+            task = TaskDefinition(
+                task_id=task_data["task_id"],
+                name=task_data["name"],
+                task_type=TaskType[task_data["task_type"].upper()],
+                action=task_data.get("action"),
+                condition=task_data.get("condition"),
+                depends_on=task_data.get("depends_on", []),
+                retry_count=task_data.get("retry_count", 0),
+                timeout=task_data.get("timeout")
+            )
+            tasks.append(task)
+
+        workflow = WorkflowDefinition(
+            workflow_id=workflow_data["workflow_id"],
+            name=workflow_data["name"],
+            description=workflow_data.get("description", ""),
+            tasks=tasks,
+            variables=workflow_data.get("variables", {})
+        )
+
+        engine.register_workflow(workflow)
+
+        return {
+            "workflow_id": workflow.workflow_id,
+            "name": workflow.name,
+            "description": workflow.description,
+            "task_count": len(workflow.tasks)
+        }
+    except Exception as e:
+        structured_logger.error("Failed to create workflow", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/orchestration/workflows")
+async def list_workflows(
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """List all registered workflows"""
+    try:
+        engine = get_orchestration_engine()
+        workflows = engine.list_workflows()
+
+        return {
+            "workflows": [
+                {
+                    "workflow_id": w.workflow_id,
+                    "name": w.name,
+                    "description": w.description,
+                    "task_count": len(w.tasks),
+                    "variables": w.variables
+                }
+                for w in workflows
+            ]
+        }
+    except Exception as e:
+        structured_logger.error("Failed to list workflows", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/orchestration/workflows/{workflow_id}/start")
+async def start_workflow(
+    workflow_id: str,
+    context: Dict[str, Any] = None,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Start a workflow execution"""
+    try:
+        engine = get_orchestration_engine()
+        execution = engine.start_workflow(workflow_id, context or {})
+
+        return {
+            "execution_id": execution.execution_id,
+            "workflow_id": execution.workflow_id,
+            "status": execution.status.value,
+            "started_at": execution.started_at.isoformat(),
+            "task_count": len(execution.task_executions)
+        }
+    except Exception as e:
+        structured_logger.error("Failed to start workflow", workflow_id=workflow_id, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/orchestration/executions/{execution_id}")
+async def get_execution(
+    execution_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get workflow execution status"""
+    try:
+        engine = get_orchestration_engine()
+        execution = engine.get_execution(execution_id)
+
+        if not execution:
+            raise HTTPException(status_code=404, detail="Execution not found")
+
+        return {
+            "execution_id": execution.execution_id,
+            "workflow_id": execution.workflow_id,
+            "status": execution.status.value,
+            "started_at": execution.started_at.isoformat(),
+            "completed_at": execution.completed_at.isoformat() if execution.completed_at else None,
+            "context": execution.context,
+            "error": execution.error,
+            "tasks": [
+                {
+                    "task_id": task_id,
+                    "status": task_exec.status.value,
+                    "started_at": task_exec.started_at.isoformat() if task_exec.started_at else None,
+                    "completed_at": task_exec.completed_at.isoformat() if task_exec.completed_at else None,
+                    "result": task_exec.result,
+                    "error": task_exec.error,
+                    "retry_count": task_exec.retry_count
+                }
+                for task_id, task_exec in execution.task_executions.items()
+            ]
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        structured_logger.error("Failed to get execution", execution_id=execution_id, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/orchestration/executions/{execution_id}/cancel")
+async def cancel_execution(
+    execution_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Cancel a running workflow execution"""
+    try:
+        engine = get_orchestration_engine()
+        success = engine.cancel_execution(execution_id)
+
+        if not success:
+            raise HTTPException(status_code=404, detail="Execution not found or already completed")
+
+        return {"message": "Execution cancelled successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        structured_logger.error("Failed to cancel execution", execution_id=execution_id, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/orchestration/executions")
+async def list_executions(
+    workflow_id: Optional[str] = None,
+    status: Optional[str] = None,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """List workflow executions"""
+    try:
+        engine = get_orchestration_engine()
+
+        if workflow_id:
+            executions = engine.list_executions(workflow_id=workflow_id)
+        else:
+            executions = engine.list_executions()
+
+        # Filter by status if provided
+        if status:
+            status_enum = WorkflowStatus[status.upper()]
+            executions = [e for e in executions if e.status == status_enum]
+
+        return {
+            "executions": [
+                {
+                    "execution_id": e.execution_id,
+                    "workflow_id": e.workflow_id,
+                    "status": e.status.value,
+                    "started_at": e.started_at.isoformat(),
+                    "completed_at": e.completed_at.isoformat() if e.completed_at else None,
+                    "error": e.error
+                }
+                for e in executions
+            ]
+        }
+    except Exception as e:
+        structured_logger.error("Failed to list executions", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
