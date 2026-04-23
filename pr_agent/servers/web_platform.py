@@ -95,6 +95,13 @@ from pr_agent.export import (
     ReportSection,
     ExportReport,
 )
+from pr_agent.notification_enhanced import (
+    get_notification_system,
+    NotificationEvent,
+    NotificationChannel,
+    NotificationPriority,
+    NotificationStatus,
+)
 from strawberry.fastapi import GraphQLRouter
 from pr_agent.graphql import schema
 
@@ -8086,6 +8093,296 @@ async def get_chart_types(
         }
     except Exception as e:
         structured_logger.error("Failed to get chart types", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Enhanced Notification API
+# ============================================================================
+
+@app.post("/api/notifications/send")
+async def send_notification(
+    request: Dict,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Send notification with intelligent routing."""
+    try:
+        notification_system = get_notification_system()
+
+        notification_id = request.get("notification_id", f"notif_{int(datetime.now().timestamp())}")
+        recipient = request.get("recipient")
+        event = NotificationEvent(request.get("event"))
+        context = request.get("context", {})
+        channels = [NotificationChannel(ch) for ch in request.get("channels", [])] if request.get("channels") else None
+        priority = NotificationPriority(request.get("priority")) if request.get("priority") else None
+
+        notifications = notification_system.send_notification(
+            notification_id=notification_id,
+            recipient=recipient,
+            event=event,
+            context=context,
+            channels=channels,
+            priority=priority
+        )
+
+        audit_logger.log_event(
+            AuditEventType.NOTIFICATION_SENT,
+            user_id=current_user.username,
+            severity=AuditSeverity.INFO,
+            details={
+                "recipient": recipient,
+                "event": event.value,
+                "channels": [ch.value for ch in (channels or [])]
+            }
+        )
+
+        return {
+            "notifications": [n.to_dict() for n in notifications]
+        }
+    except Exception as e:
+        structured_logger.error("Failed to send notification", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/notifications/{notification_id}")
+async def get_notification(
+    notification_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get notification by ID."""
+    try:
+        notification_system = get_notification_system()
+        notification = notification_system.get_notification(notification_id)
+
+        if not notification:
+            raise HTTPException(status_code=404, detail="Notification not found")
+
+        return notification.to_dict()
+    except HTTPException:
+        raise
+    except Exception as e:
+        structured_logger.error("Failed to get notification", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/notifications")
+async def list_notifications(
+    recipient: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    event: Optional[str] = Query(None),
+    limit: int = Query(100, ge=1, le=1000),
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """List notifications with filters."""
+    try:
+        notification_system = get_notification_system()
+
+        status_enum = NotificationStatus(status) if status else None
+        event_enum = NotificationEvent(event) if event else None
+
+        notifications = notification_system.list_notifications(
+            recipient=recipient,
+            status=status_enum,
+            event=event_enum,
+            limit=limit
+        )
+
+        return {
+            "notifications": [n.to_dict() for n in notifications],
+            "total": len(notifications)
+        }
+    except Exception as e:
+        structured_logger.error("Failed to list notifications", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/notifications/{notification_id}/retry")
+async def retry_notification(
+    notification_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Retry failed notification."""
+    try:
+        notification_system = get_notification_system()
+        result = notification_system.retry_notification(notification_id)
+
+        if not result:
+            raise HTTPException(status_code=400, detail="Cannot retry notification")
+
+        return {"message": "Notification retried successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        structured_logger.error("Failed to retry notification", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/notifications/{notification_id}")
+async def cancel_notification(
+    notification_id: str,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Cancel pending notification."""
+    try:
+        notification_system = get_notification_system()
+        result = notification_system.cancel_notification(notification_id)
+
+        if not result:
+            raise HTTPException(status_code=400, detail="Cannot cancel notification")
+
+        return {"message": "Notification cancelled successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        structured_logger.error("Failed to cancel notification", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/notifications/statistics")
+async def get_notification_statistics(
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get notification statistics."""
+    try:
+        notification_system = get_notification_system()
+
+        start = datetime.fromisoformat(start_date) if start_date else None
+        end = datetime.fromisoformat(end_date) if end_date else None
+
+        stats = notification_system.get_statistics(start_date=start, end_date=end)
+
+        return stats
+    except Exception as e:
+        structured_logger.error("Failed to get notification statistics", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/notifications/templates")
+async def create_notification_template(
+    request: Dict,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Create notification template."""
+    try:
+        notification_system = get_notification_system()
+
+        from pr_agent.notification_enhanced import NotificationTemplate
+
+        template = NotificationTemplate(
+            template_id=request.get("template_id"),
+            name=request.get("name"),
+            event=NotificationEvent(request.get("event")),
+            subject_template=request.get("subject_template"),
+            body_template=request.get("body_template"),
+            channel=NotificationChannel(request.get("channel")),
+            priority=NotificationPriority(request.get("priority", "medium")),
+            variables=request.get("variables", []),
+            metadata=request.get("metadata", {})
+        )
+
+        notification_system.add_template(template)
+
+        return {"message": "Template created successfully", "template_id": template.template_id}
+    except Exception as e:
+        structured_logger.error("Failed to create template", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/notifications/templates")
+async def list_notification_templates(
+    event: Optional[str] = Query(None),
+    channel: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """List notification templates."""
+    try:
+        notification_system = get_notification_system()
+
+        event_enum = NotificationEvent(event) if event else None
+        channel_enum = NotificationChannel(channel) if channel else None
+
+        templates = notification_system.list_templates(event=event_enum, channel=channel_enum)
+
+        return {
+            "templates": [
+                {
+                    "template_id": t.template_id,
+                    "name": t.name,
+                    "event": t.event.value,
+                    "channel": t.channel.value,
+                    "priority": t.priority.value,
+                    "variables": t.variables
+                }
+                for t in templates
+            ]
+        }
+    except Exception as e:
+        structured_logger.error("Failed to list templates", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/notifications/rules")
+async def create_notification_rule(
+    request: Dict,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Create notification rule."""
+    try:
+        notification_system = get_notification_system()
+
+        from pr_agent.notification_enhanced import NotificationRule
+
+        rule = NotificationRule(
+            rule_id=request.get("rule_id"),
+            name=request.get("name"),
+            event=NotificationEvent(request.get("event")),
+            conditions=request.get("conditions", {}),
+            channels=[NotificationChannel(ch) for ch in request.get("channels", [])],
+            priority=NotificationPriority(request.get("priority", "medium")),
+            enabled=request.get("enabled", True),
+            rate_limit=request.get("rate_limit"),
+            quiet_hours=request.get("quiet_hours"),
+            metadata=request.get("metadata", {})
+        )
+
+        notification_system.add_rule(rule)
+
+        return {"message": "Rule created successfully", "rule_id": rule.rule_id}
+    except Exception as e:
+        structured_logger.error("Failed to create rule", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/notifications/rules")
+async def list_notification_rules(
+    enabled_only: bool = Query(False),
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """List notification rules."""
+    try:
+        notification_system = get_notification_system()
+
+        rules = notification_system.list_rules(enabled_only=enabled_only)
+
+        return {
+            "rules": [
+                {
+                    "rule_id": r.rule_id,
+                    "name": r.name,
+                    "event": r.event.value,
+                    "channels": [ch.value for ch in r.channels],
+                    "priority": r.priority.value,
+                    "enabled": r.enabled,
+                    "rate_limit": r.rate_limit,
+                    "quiet_hours": r.quiet_hours
+                }
+                for r in rules
+            ]
+        }
+    except Exception as e:
+        structured_logger.error("Failed to list rules", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
