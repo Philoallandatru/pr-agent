@@ -87,6 +87,14 @@ from pr_agent.ai_assistant import (
     MessageRole,
     ConfidenceLevel,
 )
+from pr_agent.export import (
+    get_exporter,
+    ExportFormat,
+    ChartType,
+    ChartData,
+    ReportSection,
+    ExportReport,
+)
 from strawberry.fastapi import GraphQLRouter
 from pr_agent.graphql import schema
 
@@ -7948,6 +7956,136 @@ async def clear_conversation(
         return {"message": "Conversation cleared successfully"}
     except Exception as e:
         structured_logger.error("Failed to clear conversation", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Report Export API
+# ============================================================================
+
+@app.post("/api/export/report")
+async def export_report(
+    request: Dict,
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Export a report in specified format."""
+    try:
+        exporter = get_exporter()
+
+        # Build report from request data
+        report = ExportReport(
+            title=request.get("title", "Code Review Report"),
+            subtitle=request.get("subtitle"),
+            author=request.get("author", current_user.username),
+            date=datetime.now(),
+            summary=request.get("summary", ""),
+            sections=[
+                ReportSection(
+                    title=section.get("title", ""),
+                    content=section.get("content", ""),
+                    charts=[
+                        ChartData(
+                            type=ChartType(chart.get("type", "bar")),
+                            title=chart.get("title", ""),
+                            data=chart.get("data", {}),
+                            labels=chart.get("labels"),
+                            colors=chart.get("colors")
+                        )
+                        for chart in section.get("charts", [])
+                    ],
+                    tables=section.get("tables", []),
+                    subsections=[
+                        ReportSection(
+                            title=sub.get("title", ""),
+                            content=sub.get("content", "")
+                        )
+                        for sub in section.get("subsections", [])
+                    ]
+                )
+                for section in request.get("sections", [])
+            ],
+            metadata=request.get("metadata", {})
+        )
+
+        # Export report
+        format_str = request.get("format", "json")
+        export_format = ExportFormat(format_str)
+        output_path = request.get("output_path")
+
+        data = exporter.export(report, export_format, output_path)
+
+        audit_logger.log_event(
+            AuditEventType.REPORT_EXPORTED,
+            user_id=current_user.username,
+            severity=AuditSeverity.INFO,
+            details={
+                "format": format_str,
+                "title": report.title,
+                "sections": len(report.sections)
+            }
+        )
+
+        # Return base64 encoded data for binary formats
+        if export_format in [ExportFormat.PDF, ExportFormat.EXCEL, ExportFormat.WORD]:
+            import base64
+            return {
+                "format": format_str,
+                "data": base64.b64encode(data).decode('utf-8'),
+                "filename": f"report.{format_str}"
+            }
+        else:
+            # Return text data directly
+            return {
+                "format": format_str,
+                "data": data.decode('utf-8') if isinstance(data, bytes) else data,
+                "filename": f"report.{format_str}"
+            }
+    except Exception as e:
+        structured_logger.error("Failed to export report", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/export/formats")
+async def get_export_formats(
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get available export formats."""
+    try:
+        exporter = get_exporter()
+        formats = exporter.get_available_formats()
+
+        return {
+            "formats": [
+                {
+                    "value": fmt.value,
+                    "label": fmt.value.upper(),
+                    "available": exporter.is_format_available(fmt)
+                }
+                for fmt in ExportFormat
+            ]
+        }
+    except Exception as e:
+        structured_logger.error("Failed to get export formats", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/export/chart-types")
+async def get_chart_types(
+    current_user: User = Depends(get_current_user_or_api_key)
+):
+    """Get available chart types."""
+    try:
+        return {
+            "chart_types": [
+                {
+                    "value": chart_type.value,
+                    "label": chart_type.value.capitalize()
+                }
+                for chart_type in ChartType
+            ]
+        }
+    except Exception as e:
+        structured_logger.error("Failed to get chart types", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
