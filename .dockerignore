@@ -1,6 +1,12 @@
 .venv/
 venv/
+.env
 pr_agent/settings/.secrets.toml
 pics/
 pr_agent.egg-info/
 build/
+dist/
+__pycache__/
+.git/
+.github/
+tests/

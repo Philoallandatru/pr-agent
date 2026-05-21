@@ -1,263 +1,227 @@
-<a href="https://github.com/Codium-ai/pr-agent/commits/main">
-<img alt="GitHub" src="https://img.shields.io/github/last-commit/Codium-ai/pr-agent/main?style=for-the-badge" height="20">
-</a>
+# Bitbucket Server PR AI Reviewer
 
-<br />
+这是一个面向 Bitbucket Server / Data Center 的 PR-Agent 精简部署版本。它不依赖 webhook，而是定时轮询指定仓库的 open pull requests，发现新 PR 或 PR version 更新后自动执行 AI review 命令，并把结果发布回 PR。
 
-# 🚀 PR Agent - The Original Open-Source PR Reviewer.
+默认执行：
 
- This repository contains the open-source PR Agent Project. 
- It is not the Qodo free tier.
- 
-Try the free version on our website.
+- `/describe`：生成 PR 摘要
+- `/review`：发布代码审查意见
+- `/improve`：发布可提交的改进建议
 
-👉[Get Started Now](https://www.qodo.ai/get-started/)
+## 目录
 
-PR-Agent is an open-source, AI-powered code review agent and a community-maintained legacy project of Qodo. It is distinct from Qodo’s primary AI code review offering, which provides a feature-rich, context-aware experience. Qodo now offers a free tier that integrates seamlessly with GitHub, GitLab, Bitbucket, and Azure DevOps for high-quality automated reviews.
+- `pr_agent/servers/bitbucket_server_polling.py`：轮询服务入口
+- `pr_agent/git_providers/bitbucket_server_provider.py`：Bitbucket Server API 与 PR 评论发布
+- `.pr_agent.toml`：非敏感运行配置示例
+- `.env.example`：敏感配置和容器环境变量示例
+- `Dockerfile`、`docker-compose.yml`：推荐容器部署
+- `deployment/systemd/`：systemd 部署示例
+- `docs/BITBUCKET_POLLING.md`：更细的轮询机制说明
 
-## Table of Contents
+## 快速部署
 
-- [Getting Started](#getting-started)
-- [Why Use PR-Agent?](#why-use-pr-agent)
-- [Features](#features)
-- [See It in Action](#see-it-in-action)
-- [Try It Now](#try-it-now)
-- [How It Works](#how-it-works)
-- [Data Privacy](#data-privacy)
-- [Contributing](#contributing)
+### 1. 准备配置
 
-## Getting Started
+复制环境变量模板：
 
-### 🚀 Quick Start for PR-Agent
-
-#### 1. Try it Instantly (No Setup)
-Test PR-Agent on any public GitHub repository by commenting `@CodiumAI-Agent /improve`
-
-#### 2. GitHub Action (Recommended)
-Add automated PR reviews to your repository with a simple workflow file:
-```yaml
-# .github/workflows/pr-agent.yml
-name: PR Agent
-on:
-  pull_request:
-    types: [opened, synchronize]
-jobs:
-  pr_agent_job:
-    runs-on: ubuntu-latest
-    steps:
-    - name: PR Agent action step
-      uses: Codium-ai/pr-agent@main
-      env:
-        OPENAI_KEY: ${{ secrets.OPENAI_KEY }}
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-```
-[Full GitHub Action setup guide](https://qodo-merge-docs.qodo.ai/installation/github/#run-as-a-github-action)
-
-#### 3. CLI Usage (Local Development)
-Run PR-Agent locally on your repository:
 ```bash
-pip install pr-agent
-export OPENAI_KEY=your_key_here
-pr-agent --pr_url https://github.com/owner/repo/pull/123 review
-```
-[Complete CLI setup guide](https://qodo-merge-docs.qodo.ai/usage-guide/automations_and_usage/#local-repo-cli)
-
-#### 4. Other Platforms
-- [GitLab webhook setup](https://qodo-merge-docs.qodo.ai/installation/gitlab/)
-- [BitBucket app installation](https://qodo-merge-docs.qodo.ai/installation/bitbucket/)
-- [Azure DevOps setup](https://qodo-merge-docs.qodo.ai/installation/azure/)
-
-[//]: # (## News and Updates)
-
-[//]: # ()
-[//]: # (## Aug 8, 2025)
-
-[//]: # ()
-[//]: # ()
-[//]: # ()
-[//]: # (## Jul 17, 2025)
-
-[//]: # ()
-[//]: # (Introducing `/compliance`, a new Qodo Merge 💎 tool that runs comprehensive checks for security, ticket requirements, codebase duplication, and custom organizational rules. )
-
-[//]: # ()
-[//]: # (<img width="384" alt="compliance-image" src="https://codium.ai/images/pr_agent/compliance_partial.png"/>)
-
-[//]: # ()
-[//]: # (Read more about it [here]&#40;https://qodo-merge-docs.qodo.ai/tools/compliance/&#41;)
-
-[//]: # ()
-[//]: # ()
-[//]: # (## Jul 1, 2025)
-
-[//]: # (You can now receive automatic feedback from Qodo Merge in your local IDE after each commit. Read more about it [here]&#40;https://github.com/qodo-ai/agents/tree/main/agents/qodo-merge-post-commit&#41;.)
-
-[//]: # ()
-[//]: # ()
-[//]: # (## Jun 21, 2025)
-
-[//]: # ()
-[//]: # (v0.30 was [released]&#40;https://github.com/qodo-ai/pr-agent/releases&#41;)
-
-[//]: # ()
-[//]: # ()
-[//]: # (## Jun 3, 2025)
-
-[//]: # ()
-[//]: # (Qodo Merge now offers a simplified free tier 💎.)
-
-[//]: # (Organizations can use Qodo Merge at no cost, with a [monthly limit]&#40;https://qodo-merge-docs.qodo.ai/installation/qodo_merge/#cloud-users&#41; of 75 PR reviews per organization.)
-
-[//]: # ()
-[//]: # ()
-[//]: # (## Apr 30, 2025)
-
-[//]: # ()
-[//]: # (A new feature is now available in the `/improve` tool for Qodo Merge 💎 - Chat on code suggestions.)
-
-[//]: # ()
-[//]: # (<img width="512" alt="image" src="https://codium.ai/images/pr_agent/improve_chat_on_code_suggestions_ask.png" />)
-
-[//]: # ()
-[//]: # (Read more about it [here]&#40;https://qodo-merge-docs.qodo.ai/tools/improve/#chat-on-code-suggestions&#41;.)
-
-[//]: # ()
-[//]: # ()
-[//]: # (## Apr 16, 2025)
-
-[//]: # ()
-[//]: # (New tool for Qodo Merge 💎 - `/scan_repo_discussions`.)
-
-[//]: # ()
-[//]: # (<img width="635" alt="image" src="https://codium.ai/images/pr_agent/scan_repo_discussions_2.png" />)
-
-[//]: # ()
-[//]: # (Read more about it [here]&#40;https://qodo-merge-docs.qodo.ai/tools/scan_repo_discussions/&#41;.)
-
-## Why Use PR-Agent?
-
-### 🎯 Built for Real Development Teams
-
-**Fast & Affordable**: Each tool (`/review`, `/improve`, `/ask`) uses a single LLM call (~30 seconds, low cost)
-
-**Handles Any PR Size**: Our [PR Compression strategy](https://qodo-merge-docs.qodo.ai/core-abilities/#pr-compression-strategy) effectively processes both small and large PRs
-
-**Highly Customizable**: JSON-based prompting allows easy customization of review categories and behavior via [configuration files](pr_agent/settings/configuration.toml)
-
-**Platform Agnostic**: 
-- **Git Providers**: GitHub, GitLab, BitBucket, Azure DevOps, Gitea
-- **Deployment**: CLI, GitHub Actions, Docker, self-hosted, webhooks
-- **AI Models**: OpenAI GPT, Claude, Deepseek, and more
-
-**Open Source Benefits**:
-- Full control over your data and infrastructure
-- Customize prompts and behavior for your team's needs
-- No vendor lock-in
-- Community-driven development
-
-## Features
-
-<div style="text-align:left;">
-
-PR-Agent offers comprehensive pull request functionalities integrated with various git providers:
-
-|                                                         |                                                                                        | GitHub | GitLab | Bitbucket | Azure DevOps | Gitea |
-|---------------------------------------------------------|----------------------------------------------------------------------------------------|:------:|:------:|:---------:|:------------:|:-----:|
-| [TOOLS](https://qodo-merge-docs.qodo.ai/tools/)         | [Describe](https://qodo-merge-docs.qodo.ai/tools/describe/)                            |   ✅   |   ✅   |    ✅     |      ✅      |  ✅   |
-|                                                         | [Review](https://qodo-merge-docs.qodo.ai/tools/review/)                                |   ✅   |   ✅   |    ✅     |      ✅      |  ✅   |
-|                                                         | [Improve](https://qodo-merge-docs.qodo.ai/tools/improve/)                              |   ✅   |   ✅   |    ✅     |      ✅      |  ✅   |
-|                                                         | [Ask](https://qodo-merge-docs.qodo.ai/tools/ask/)                                      |   ✅   |   ✅   |    ✅     |      ✅      |       |
-|                                                         | ⮑ [Ask on code lines](https://qodo-merge-docs.qodo.ai/tools/ask/#ask-lines)            |   ✅   |   ✅   |           |              |       |
-|                                                         | [Help Docs](https://qodo-merge-docs.qodo.ai/tools/help_docs/?h=auto#auto-approval)     |   ✅   |   ✅   |    ✅     |              |       |
-|                                                         | [Update CHANGELOG](https://qodo-merge-docs.qodo.ai/tools/update_changelog/)            |   ✅   |   ✅   |    ✅     |      ✅      |       |
-|                                                         |                                                                                                                     |        |        |           |              |       |
-| [USAGE](https://qodo-merge-docs.qodo.ai/usage-guide/)   | [CLI](https://qodo-merge-docs.qodo.ai/usage-guide/automations_and_usage/#local-repo-cli)                            |   ✅   |   ✅   |    ✅     |      ✅      |  ✅   |
-|                                                         | [App / webhook](https://qodo-merge-docs.qodo.ai/usage-guide/automations_and_usage/#github-app)                      |   ✅   |   ✅   |    ✅     |      ✅      |  ✅   |
-|                                                         | [Tagging bot](https://github.com/Codium-ai/pr-agent#try-it-now)                                                     |   ✅   |        |           |              |       |
-|                                                         | [Actions](https://qodo-merge-docs.qodo.ai/installation/github/#run-as-a-github-action)                              |   ✅   |   ✅   |    ✅     |      ✅      |       |
-|                                                         |                                                                                                                     |        |        |           |              |       |
-| [CORE](https://qodo-merge-docs.qodo.ai/core-abilities/) | [Adaptive and token-aware file patch fitting](https://qodo-merge-docs.qodo.ai/core-abilities/compression_strategy/) |   ✅   |   ✅   |    ✅     |      ✅      |       |
-|                                                         | [Chat on code suggestions](https://qodo-merge-docs.qodo.ai/core-abilities/chat_on_code_suggestions/)                |   ✅   |  ✅   |           |              |       |
-|                                                         | [Dynamic context](https://qodo-merge-docs.qodo.ai/core-abilities/dynamic_context/)                                  |   ✅   |   ✅   |    ✅     |      ✅      |       |
-|                                                         | [Fetching ticket context](https://qodo-merge-docs.qodo.ai/core-abilities/fetching_ticket_context/)                  |   ✅    |  ✅    |     ✅     |              |       |
-|                                                         | [Incremental Update](https://qodo-merge-docs.qodo.ai/core-abilities/incremental_update/)                            |   ✅    |       |           |              |       |
-|                                                         | [Interactivity](https://qodo-merge-docs.qodo.ai/core-abilities/interactivity/)                                      |   ✅   |  ✅   |           |              |       |
-|                                                         | [Local and global metadata](https://qodo-merge-docs.qodo.ai/core-abilities/metadata/)                               |   ✅   |   ✅   |    ✅     |      ✅      |       |
-|                                                         | [Multiple models support](https://qodo-merge-docs.qodo.ai/usage-guide/changing_a_model/)                            |   ✅   |   ✅   |    ✅     |      ✅      |       |
-|                                                         | [PR compression](https://qodo-merge-docs.qodo.ai/core-abilities/compression_strategy/)                              |   ✅   |   ✅   |    ✅     |      ✅      |       |
-|                                                         | [RAG context enrichment](https://qodo-merge-docs.qodo.ai/core-abilities/rag_context_enrichment/)                    |   ✅    |       |    ✅     |              |       |
-|                                                         | [Self reflection](https://qodo-merge-docs.qodo.ai/core-abilities/self_reflection/)                                  |   ✅   |   ✅   |    ✅     |      ✅      |       |
-
-[//]: # (- Support for additional git providers is described in [here]&#40;./docs/Full_environments.md&#41;)
-___
-
-## See It in Action
-
-</div>
-<h4><a href="https://github.com/Codium-ai/pr-agent/pull/530">/describe</a></h4>
-<div align="center">
-<p float="center">
-<img src="https://www.codium.ai/images/pr_agent/describe_new_short_main.png" width="512">
-</p>
-</div>
-<hr>
-
-<h4><a href="https://github.com/Codium-ai/pr-agent/pull/732#issuecomment-1975099151">/review</a></h4>
-<div align="center">
-<p float="center">
-<kbd>
-<img src="https://www.codium.ai/images/pr_agent/review_new_short_main.png" width="512">
-</kbd>
-</p>
-</div>
-<hr>
-
-<h4><a href="https://github.com/Codium-ai/pr-agent/pull/732#issuecomment-1975099159">/improve</a></h4>
-<div align="center">
-<p float="center">
-<kbd>
-<img src="https://www.codium.ai/images/pr_agent/improve_new_short_main.png" width="512">
-</kbd>
-</p>
-</div>
-
-<hr>
-
-## Try It Now
-
-Try the GPT-5 powered PR-Agent instantly on _your public GitHub repository_. Just mention `@CodiumAI-Agent` and add the desired command in any PR comment. The agent will generate a response based on your command.
-For example, add a comment to any pull request with the following text:
-
-```
-@CodiumAI-Agent /review
+cp .env.example .env
 ```
 
-and the agent will respond with a review of your PR.
+编辑 `.env`：
 
-Note that this is a promotional bot, suitable only for initial experimentation.
-It does not have 'edit' access to your repo, for example, so it cannot update the PR description or add labels (`@CodiumAI-Agent /describe` will publish PR description as a comment). In addition, the bot cannot be used on private repositories, as it does not have access to the files there.
+```env
+CONFIG__GIT_PROVIDER=bitbucket_server
+BITBUCKET_SERVER__URL=https://bitbucket.example.com
+BITBUCKET_SERVER__BEARER_TOKEN=replace-with-bitbucket-personal-access-token
+OPENAI__KEY=sk-replace-me
+OPENAI_API_KEY=sk-replace-me
+```
 
+编辑 `.pr_agent.toml`，把仓库列表改成你的 Bitbucket Server 项目和仓库：
 
-## How It Works
+```toml
+[bitbucket_server]
+enable_polling = true
+polling_interval_seconds = 300
+polling_repositories = [
+    "PROJ/backend-api",
+    "PROJ/frontend-app",
+]
+polling_commands = [
+    "/describe --pr_description.final_update_message=false",
+    "/review --pr_reviewer.require_security_review=true",
+    "/improve --pr_code_suggestions.commitable_code_suggestions=true",
+]
+polling_state_file = "/data/state/polling_state.json"
+max_parallel_tasks = 4
+```
 
-The following diagram illustrates PR-Agent tools and their flow:
+仓库格式必须是 `PROJECT/repo-slug`，对应 PR URL：
 
-![PR-Agent Tools](https://www.qodo.ai/images/pr_agent/diagram-v0.9.png)
+```text
+https://bitbucket.example.com/projects/PROJECT/repos/repo-slug/pull-requests/123
+```
 
-## Data Privacy
+### 2. Docker Compose 启动
 
-### Self-hosted PR-Agent
+```bash
+docker compose up -d --build
+docker compose logs -f pr-agent-polling
+```
 
-- If you host PR-Agent with your OpenAI API key, it is between you and OpenAI. You can read their API data privacy policy here:
-https://openai.com/enterprise-privacy
+服务会每 `polling_interval_seconds` 秒查询一次配置里的仓库。状态文件保存在 Docker volume `polling-state` 中，重启后不会重复处理已处理过的 PR version。
 
-## Contributing
+### 3. 本地启动
 
-To contribute to the project, get started by reading our [Contributing Guide](https://github.com/qodo-ai/pr-agent/blob/b09eec265ef7d36c232063f76553efb6b53979ff/CONTRIBUTING.md).
+Python 需要 `>=3.12`：
 
+```bash
+python -m venv .venv
+./.venv/bin/pip install -r requirements.txt
+./.venv/bin/pip install -e .
 
-## ❤️ Community
+export PR_AGENT_CONFIG_FILE="$PWD/.pr_agent.toml"
+export CONFIG__GIT_PROVIDER=bitbucket_server
+export BITBUCKET_SERVER__URL=https://bitbucket.example.com
+export BITBUCKET_SERVER__BEARER_TOKEN=replace-with-token
+export OPENAI__KEY=sk-replace-me
 
-This open-source release remains here as a community contribution from Qodo — the origin of modern AI-powered code collaboration. We’re proud to share it and inspire developers worldwide.
+PYTHONPATH=. ./.venv/bin/python -m pr_agent.servers.bitbucket_server_polling
+```
 
-The project now has its first external maintainer, Naor ([@naorpeled](https://github.com/naorpeled)), and is currently in the process of being donated to an open-source foundation.
+Windows PowerShell 等价命令：
+
+```powershell
+$env:PR_AGENT_CONFIG_FILE="$PWD\.pr_agent.toml"
+$env:CONFIG__GIT_PROVIDER="bitbucket_server"
+$env:BITBUCKET_SERVER__URL="https://bitbucket.example.com"
+$env:BITBUCKET_SERVER__BEARER_TOKEN="replace-with-token"
+$env:OPENAI__KEY="sk-replace-me"
+$env:PYTHONPATH="."
+.\.venv\Scripts\python.exe -m pr_agent.servers.bitbucket_server_polling
+```
+
+## Bitbucket token 权限
+
+建议使用专门的 service account，并授予被轮询仓库：
+
+- 读取项目和仓库
+- 读取 pull request diff
+- 在 pull request 上发表评论
+- 如果启用 committable suggestions，需要允许写 PR 评论；不需要仓库写权限
+
+不要把 token 写入 `.pr_agent.toml` 或提交到 git。使用 `.env`、CI/CD secret、Kubernetes Secret 或 systemd `EnvironmentFile`。
+
+## AI 模型配置
+
+默认模型来自 `pr_agent/settings/configuration.toml`。可以在 `.env` 中覆盖：
+
+```env
+CONFIG__MODEL=gpt-4o
+OPENAI__KEY=sk-replace-me
+```
+
+也可以使用 LiteLLM 支持的其他模型，只要补齐对应 provider 的环境变量。
+
+## 轮询行为
+
+每轮执行步骤：
+
+1. 调用 Bitbucket Server API 列出每个仓库的 open PR
+2. 读取 PR `version`
+3. 和 `polling_state_file` 中记录的 version 比较
+4. 新 PR 或 version 变化时执行 `polling_commands`
+5. 写回状态，避免重复审查
+
+如果你想让某个 PR 重新触发 review，可以删除状态文件里对应的 PR 条目，或直接清空 state volume。
+
+## 常用配置
+
+```toml
+[config]
+response_language = "zh-CN"
+ignore_pr_title = ["^\\[WIP\\]", "^Draft"]
+ignore_pr_source_branches = ["^dependabot/"]
+
+[pr_reviewer]
+require_security_review = true
+require_tests_review = true
+num_max_findings = 5
+
+[pr_code_suggestions]
+commitable_code_suggestions = true
+focus_only_on_problems = true
+```
+
+更多配置项见 `pr_agent/settings/configuration.toml`，只把需要覆盖的配置写进 `.pr_agent.toml`。
+
+## systemd 部署
+
+参考：
+
+```bash
+cat deployment/systemd/README.md
+```
+
+核心服务文件是：
+
+```text
+deployment/systemd/pr-agent-polling.service
+```
+
+## 验证
+
+本地基础验证：
+
+```bash
+PYTHONPATH=. ./.venv/bin/pytest tests/unittest/test_polling_state.py -q
+PYTHONPATH=. ./.venv/bin/pytest tests/unittest/test_bitbucket_provider.py -q
+```
+
+启动服务后，在日志里应该看到：
+
+```text
+Starting Bitbucket Server polling service
+Polling configuration: ...
+Polling iteration #1 started
+```
+
+## 排错
+
+`Bitbucket Server polling is not enabled`
+
+确认 `.pr_agent.toml` 包含：
+
+```toml
+[bitbucket_server]
+enable_polling = true
+```
+
+`No repositories configured for polling`
+
+确认 `polling_repositories` 不为空，且格式是 `PROJECT/repo-slug`。
+
+`BITBUCKET_SERVER.URL not configured`
+
+确认容器或进程环境变量包含：
+
+```env
+BITBUCKET_SERVER__URL=https://bitbucket.example.com
+```
+
+`Invalid or missing Bitbucket Server URL parsed from PR URL`
+
+通常是没有设置 `BITBUCKET_SERVER__URL`，或 `.env` 没有被 Docker Compose 传入容器。使用：
+
+```bash
+docker compose exec pr-agent-polling env | grep BITBUCKET_SERVER
+```
+
+`401` 或 `403`
+
+检查 service account token 是否有效，以及是否有目标项目和仓库的 PR 读取与评论权限。
+
+## 维护说明
+
+这个仓库已经删除了与目标部署无关的前端管理台、通用 MkDocs 站点和一次性项目总结文档。保留内容聚焦于 Bitbucket Server 轮询 reviewer 的源码、测试、容器部署和 systemd 部署。

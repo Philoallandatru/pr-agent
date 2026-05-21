@@ -1,20 +1,36 @@
-[pr_reviewer]
-enable_review_labels_effort = true
-enable_auto_approval = true
-
-[github_app]
-pr_commands = [
-    "/describe --pr_description.publish_description_as_comment=true",
-    "/improve",
-    "/agentic_review"
-]
-
-handle_push_trigger = true
-push_commands = [
-    "/improve",
-    "/agentic_review"
-]
-
-[review_agent]
-enabled = true
+[config]
+git_provider = "bitbucket_server"
 publish_output = true
+publish_output_progress = true
+response_language = "zh-CN"
+
+[bitbucket_server]
+enable_polling = true
+polling_interval_seconds = 300
+polling_repositories = [
+    "PROJ/backend-api",
+]
+polling_commands = [
+    "/describe --pr_description.final_update_message=false",
+    "/review --pr_reviewer.require_security_review=true",
+    "/improve --pr_code_suggestions.commitable_code_suggestions=true",
+]
+polling_state_file = "/data/state/polling_state.json"
+max_parallel_tasks = 4
+
+[pr_reviewer]
+require_security_review = true
+require_tests_review = true
+enable_review_labels_effort = true
+enable_review_labels_security = true
+enable_help_text = false
+
+[pr_description]
+publish_description_as_comment = true
+final_update_message = false
+enable_help_text = false
+
+[pr_code_suggestions]
+commitable_code_suggestions = true
+focus_only_on_problems = true
+publish_output_no_suggestions = true

@@ -1,27 +1,28 @@
 [Unit]
-Description=PR Agent Bitbucket Polling Service
-After=network.target
+Description=PR-Agent Bitbucket Server Polling Reviewer
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 User=pr-agent
 Group=pr-agent
 WorkingDirectory=/opt/pr-agent
-Environment="PATH=/opt/pr-agent/venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONPATH=/opt/pr-agent"
+Environment="PR_AGENT_CONFIG_FILE=/etc/pr-agent/.pr_agent.toml"
 Environment="PYTHONUNBUFFERED=1"
-ExecStart=/opt/pr-agent/venv/bin/python -m pr_agent.servers.bitbucket_server_polling
+EnvironmentFile=-/etc/pr-agent/polling.env
+ExecStart=/opt/pr-agent/.venv/bin/python -m pr_agent.servers.bitbucket_server_polling
 Restart=always
-RestartSec=10
+RestartSec=15
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=pr-agent-polling
 
-# Security settings
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/pr-agent /var/log/pr-agent
+ReadWritePaths=/var/lib/pr-agent /var/log/pr-agent /opt/pr-agent
 
 [Install]
 WantedBy=multi-user.target

@@ -1,3 +1,4 @@
+from os import environ
 from os.path import abspath, dirname, join
 from pathlib import Path
 from typing import Optional
@@ -9,6 +10,34 @@ PR_AGENT_TOML_KEY = 'pr-agent'
 
 current_dir = dirname(abspath(__file__))
 
+settings_files = [join(current_dir, f) for f in [
+    "settings/configuration.toml",
+    "settings/ignore.toml",
+    "settings/generated_code_ignore.toml",
+    "settings/language_extensions.toml",
+    "settings/pr_reviewer_prompts.toml",
+    "settings/pr_questions_prompts.toml",
+    "settings/pr_line_questions_prompts.toml",
+    "settings/pr_description_prompts.toml",
+    "settings/code_suggestions/pr_code_suggestions_prompts.toml",
+    "settings/code_suggestions/pr_code_suggestions_prompts_not_decoupled.toml",
+    "settings/code_suggestions/pr_code_suggestions_reflect_prompts.toml",
+    "settings/pr_information_from_user_prompts.toml",
+    "settings/pr_update_changelog_prompts.toml",
+    "settings/pr_custom_labels.toml",
+    "settings/pr_add_docs.toml",
+    "settings/custom_labels.toml",
+    "settings/pr_help_prompts.toml",
+    "settings/pr_help_docs_prompts.toml",
+    "settings/pr_help_docs_headings_prompts.toml",
+    "settings/.secrets.toml",
+    "settings_prod/.secrets.toml",
+]]
+
+env_config_file = environ.get("PR_AGENT_CONFIG_FILE")
+if env_config_file:
+    settings_files.append(abspath(env_config_file))
+
 dynconf_kwargs = {'core_loaders': [], # DISABLE default loaders, otherwise will load toml files more than once.
                            'loaders': ['pr_agent.custom_merge_loader', 'dynaconf.loaders.env_loader'], # Use a custom loader to merge sections, but overwrite their overlapping values. Also support ENV variables to take precedence.
                            'root_path': join(current_dir, "settings"), #Used for Dynaconf.find_file() - So that root path points to settings folder, since we disabled all core loaders.
@@ -17,29 +46,7 @@ dynconf_kwargs = {'core_loaders': [], # DISABLE default loaders, otherwise will 
 global_settings = Dynaconf(
     envvar_prefix=False,
     load_dotenv=False,  # Security: Don't load .env files
-    settings_files=[join(current_dir, f) for f in [
-        "settings/configuration.toml",
-        "settings/ignore.toml",
-        "settings/generated_code_ignore.toml",
-        "settings/language_extensions.toml",
-        "settings/pr_reviewer_prompts.toml",
-        "settings/pr_questions_prompts.toml",
-        "settings/pr_line_questions_prompts.toml",
-        "settings/pr_description_prompts.toml",
-        "settings/code_suggestions/pr_code_suggestions_prompts.toml",
-        "settings/code_suggestions/pr_code_suggestions_prompts_not_decoupled.toml",
-        "settings/code_suggestions/pr_code_suggestions_reflect_prompts.toml",
-        "settings/pr_information_from_user_prompts.toml",
-        "settings/pr_update_changelog_prompts.toml",
-        "settings/pr_custom_labels.toml",
-        "settings/pr_add_docs.toml",
-        "settings/custom_labels.toml",
-        "settings/pr_help_prompts.toml",
-        "settings/pr_help_docs_prompts.toml",
-        "settings/pr_help_docs_headings_prompts.toml",
-        "settings/.secrets.toml",
-        "settings_prod/.secrets.toml",
-    ]],
+    settings_files=settings_files,
     **dynconf_kwargs
 )
 

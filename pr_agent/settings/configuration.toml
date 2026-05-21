@@ -346,16 +346,6 @@ max_parallel_tasks = 10
 # token to authenticate in the patch server
 # patch_server_token = ""
 
-[bitbucket_server]
-# URL to the BitBucket Server instance
-# url = "https://git.bitbucket.com"
-url = ""
-pr_commands = [
-    "/describe --pr_description.final_update_message=false",
-    "/review",
-    "/improve --pr_code_suggestions.commitable_code_suggestions=true",
-]
-
 [litellm]
 # use_client = false
 # drop_params = false
