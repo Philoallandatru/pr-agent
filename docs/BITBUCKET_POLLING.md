@@ -2,7 +2,7 @@
 
 The polling service monitors configured Bitbucket Server / Data Center repositories for open pull requests. It runs configured PR-Agent commands when it sees a new PR or a newer PR version.
 
-Use this when webhook delivery is hard to expose from an internal Bitbucket instance.
+This deployment is designed for local or intranet OpenAI-compatible model services. Runtime should not fetch model or tokenizer assets from Hugging Face or other public networks.
 
 ## Required configuration
 
@@ -11,6 +11,9 @@ Keep non-secret behavior in `.pr_agent.toml`:
 ```toml
 [config]
 git_provider = "bitbucket_server"
+model = "openai/local-review-model"
+fallback_models = []
+custom_model_max_tokens = 32768
 response_language = "zh-CN"
 
 [bitbucket_server]
@@ -26,15 +29,22 @@ polling_commands = [
 ]
 polling_state_file = "/data/state/polling_state.json"
 max_parallel_tasks = 4
+
+[tokenizer]
+local_cache_dir = "/data/tokenizers"
+enable_local_cache = true
+fallback_to_download = false
 ```
 
-Keep secrets in environment variables:
+Keep secrets and endpoint addresses in environment variables:
 
 ```env
 BITBUCKET_SERVER__URL=https://bitbucket.example.com
 BITBUCKET_SERVER__BEARER_TOKEN=replace-with-token
-OPENAI__KEY=sk-replace-me
-OPENAI_API_KEY=sk-replace-me
+OPENAI__API_BASE=http://host.docker.internal:8000/v1
+OPENAI__KEY=local-api-key
+OPENAI_API_KEY=local-api-key
+TIKTOKEN_CACHE_DIR=/data/tokenizers
 ```
 
 `polling_repositories` values must use `PROJECT/repo-slug`, matching Bitbucket URLs like:
@@ -42,6 +52,39 @@ OPENAI_API_KEY=sk-replace-me
 ```text
 https://bitbucket.example.com/projects/PROJECT/repos/repo-slug/pull-requests/123
 ```
+
+## Local model endpoint
+
+Any service compatible with OpenAI chat completions can be used:
+
+- vLLM OpenAI-compatible server
+- llama.cpp server with `/v1`
+- LM Studio local server
+- Ollama OpenAI-compatible endpoint
+- Internal model gateway
+
+PR-Agent only needs the service to be reachable at `OPENAI__API_BASE` and to expose the model name configured in `CONFIG__MODEL` / `[config].model`.
+
+## Strict offline tokenizer mode
+
+Set:
+
+```env
+TOKENIZER__ENABLE_LOCAL_CACHE=true
+TOKENIZER__FALLBACK_TO_DOWNLOAD=false
+TOKENIZER__LOCAL_CACHE_DIR=/data/tokenizers
+TIKTOKEN_CACHE_DIR=/data/tokenizers
+```
+
+With this setting, missing tokenizer/cache data fails fast instead of falling back to public downloads. Prewarm cache on a machine that is allowed to access tokenizer assets, then copy the whole directory to the deployment host:
+
+```bash
+python -m pr_agent.algo.tokenizer_manager download \
+  --cache-dir ./tokenizers \
+  --models openai/local-review-model o200k_base
+```
+
+For unknown local models, `o200k_base` is used for estimation. Set `custom_model_max_tokens` to the context length your deployed model actually supports.
 
 ## Running
 
@@ -53,14 +96,21 @@ docker compose up -d --build
 docker compose logs -f pr-agent-polling
 ```
 
-Local:
+Python directly:
 
 ```bash
 export PR_AGENT_CONFIG_FILE="$PWD/.pr_agent.toml"
 export CONFIG__GIT_PROVIDER=bitbucket_server
 export BITBUCKET_SERVER__URL=https://bitbucket.example.com
 export BITBUCKET_SERVER__BEARER_TOKEN=replace-with-token
-export OPENAI__KEY=sk-replace-me
+export CONFIG__MODEL=openai/local-review-model
+export OPENAI__API_BASE=http://127.0.0.1:8000/v1
+export OPENAI__KEY=local-api-key
+export OPENAI_API_KEY=local-api-key
+export TOKENIZER__LOCAL_CACHE_DIR="$PWD/tokenizers"
+export TOKENIZER__ENABLE_LOCAL_CACHE=true
+export TOKENIZER__FALLBACK_TO_DOWNLOAD=false
+export TIKTOKEN_CACHE_DIR="$PWD/tokenizers"
 PYTHONPATH=. python -m pr_agent.servers.bitbucket_server_polling
 ```
 
@@ -93,30 +143,14 @@ The polling flow uses the same filtering logic as webhooks:
 - `config.ignore_pr_source_branches`
 - `config.ignore_pr_target_branches`
 
-Example:
-
-```toml
-[config]
-ignore_pr_title = ["^\\[WIP\\]", "^Draft"]
-ignore_pr_source_branches = ["^dependabot/"]
-```
-
-## Operational notes
-
-- Start with `polling_interval_seconds = 300`.
-- Keep `max_parallel_tasks` conservative until you know the AI provider rate limit.
-- Use a dedicated Bitbucket service account.
-- Put the state file on persistent storage.
-- Delete a PR entry from the state file if you intentionally want to re-run review on the same PR version.
-
 ## Troubleshooting
 
-`Bitbucket Server polling is not enabled`: set `bitbucket_server.enable_polling = true`.
+`BITBUCKET_SERVER.URL not configured`: set `BITBUCKET_SERVER__URL`.
 
 `No repositories configured for polling`: set `bitbucket_server.polling_repositories`.
 
-`BITBUCKET_SERVER.URL not configured`: set `BITBUCKET_SERVER__URL` in the process environment.
+`Tokenizer not available in local cache and download is disabled`: mount or copy a prewarmed tokenizer cache directory.
+
+Model connection errors: check `OPENAI__API_BASE` from inside the PR-Agent process or container.
 
 `401` or `403`: check the Bitbucket token and repository permissions.
-
-No comments appear on the PR: check service logs, token permissions, and whether filters skipped the PR.

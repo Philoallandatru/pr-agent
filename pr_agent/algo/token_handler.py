@@ -48,6 +48,7 @@ class TokenEncoder:
             if not cache_path.exists():
                 get_logger().warning(f"Local tokenizer cache directory does not exist: {local_cache_dir}")
                 return None
+            os.environ.setdefault("TIKTOKEN_CACHE_DIR", str(cache_path))
 
             # Check if tokenizer marker file exists
             cache_file = cache_path / f"{model}.tiktoken"

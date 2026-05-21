@@ -1,28 +1,24 @@
 # Bitbucket Server PR AI Reviewer
 
-这是一个面向 Bitbucket Server / Data Center 的 PR-Agent 精简部署版本。它不依赖 webhook，而是定时轮询指定仓库的 open pull requests，发现新 PR 或 PR version 更新后自动执行 AI review 命令，并把结果发布回 PR。
+这是一个面向 Bitbucket Server / Data Center 的轮询式 PR AI reviewer。它不依赖 webhook，而是定时扫描指定仓库的 open pull requests，发现新 PR 或 PR version 更新后自动执行 `/describe`、`/review`、`/improve`，并把结果发布回 PR。
 
-默认执行：
+本仓库的默认部署目标是：使用本地或内网已经部署好的 OpenAI-compatible 模型服务，不依赖 OpenAI 公网，不在运行时从 Hugging Face 或其他公网下载模型资源。
 
-- `/describe`：生成 PR 摘要
-- `/review`：发布代码审查意见
-- `/improve`：发布可提交的改进建议
+## 快速开始
 
-## 目录
+### 1. 启动本地 OpenAI-compatible 模型服务
 
-- `pr_agent/servers/bitbucket_server_polling.py`：轮询服务入口
-- `pr_agent/git_providers/bitbucket_server_provider.py`：Bitbucket Server API 与 PR 评论发布
-- `.pr_agent.toml`：非敏感运行配置示例
-- `.env.example`：敏感配置和容器环境变量示例
-- `Dockerfile`、`docker-compose.yml`：推荐容器部署
-- `deployment/systemd/`：systemd 部署示例
-- `docs/BITBUCKET_POLLING.md`：更细的轮询机制说明
+先保证你已经有一个兼容 OpenAI `/v1/chat/completions` 的服务，例如 vLLM、llama.cpp server、LM Studio、Ollama 的 OpenAI-compatible endpoint，或公司内部模型网关。
 
-## 快速部署
+PR-Agent 不负责下载或启动大模型本体。推荐先单独验证模型服务：
 
-### 1. 准备配置
+```bash
+curl http://127.0.0.1:8000/v1/models
+```
 
-复制环境变量模板：
+如果服务需要 API key，记下 key；如果不需要，也填写一个占位值，例如 `local-api-key`。
+
+### 2. 准备配置
 
 ```bash
 cp .env.example .env
@@ -34,11 +30,29 @@ cp .env.example .env
 CONFIG__GIT_PROVIDER=bitbucket_server
 BITBUCKET_SERVER__URL=https://bitbucket.example.com
 BITBUCKET_SERVER__BEARER_TOKEN=replace-with-bitbucket-personal-access-token
-OPENAI__KEY=sk-replace-me
-OPENAI_API_KEY=sk-replace-me
+
+CONFIG__MODEL=openai/local-review-model
+CONFIG__FALLBACK_MODELS=[]
+CONFIG__CUSTOM_MODEL_MAX_TOKENS=32768
+OPENAI__API_BASE=http://host.docker.internal:8000/v1
+OPENAI__KEY=local-api-key
+OPENAI_API_KEY=local-api-key
+
+TOKENIZER__LOCAL_CACHE_DIR=/data/tokenizers
+TOKENIZER__ENABLE_LOCAL_CACHE=true
+TOKENIZER__FALLBACK_TO_DOWNLOAD=false
+TIKTOKEN_CACHE_DIR=/data/tokenizers
 ```
 
-编辑 `.pr_agent.toml`，把仓库列表改成你的 Bitbucket Server 项目和仓库：
+说明：
+
+- `OPENAI__API_BASE` 指向你已经部署好的 OpenAI-compatible 服务。
+- `CONFIG__MODEL` 使用 LiteLLM 的 OpenAI provider 写法，建议保留 `openai/` 前缀。
+- `CONFIG__FALLBACK_MODELS=[]` 避免主模型失败后切到公网模型。
+- `TOKENIZER__FALLBACK_TO_DOWNLOAD=false` 表示没有本地 tokenizer/cache 时直接失败，不访问外网。
+- Docker Desktop 场景下，容器访问宿主机服务通常用 `http://host.docker.internal:端口/v1`。Linux 服务器上建议用模型服务的内网 IP、容器网络名或网关地址。
+
+编辑 `.pr_agent.toml`，配置要轮询的仓库：
 
 ```toml
 [bitbucket_server]
@@ -63,16 +77,47 @@ max_parallel_tasks = 4
 https://bitbucket.example.com/projects/PROJECT/repos/repo-slug/pull-requests/123
 ```
 
-### 2. Docker Compose 启动
+### 3. 预置 tokenizer/cache
+
+严格内网环境下，运行服务前要确保 `/data/tokenizers` 已经有 tokenizer 缓存。可以在有网络的同构环境中预热一次，再把整个缓存目录复制到部署机器：
+
+```bash
+python -m pr_agent.algo.tokenizer_manager download \
+  --cache-dir ./tokenizers \
+  --models openai/local-review-model o200k_base
+```
+
+部署时挂载这个目录：
+
+```yaml
+volumes:
+  - ./tokenizers:/data/tokenizers
+```
+
+如果你的本地模型不是 GPT 系列 tokenizer，PR-Agent 会用 `o200k_base` 做 token 估算。建议在 `.pr_agent.toml` 中设置：
+
+```toml
+[config]
+custom_model_max_tokens = 32768
+model_token_count_estimate_factor = 0.3
+```
+
+### 4. Docker Compose 启动
 
 ```bash
 docker compose up -d --build
 docker compose logs -f pr-agent-polling
 ```
 
-服务会每 `polling_interval_seconds` 秒查询一次配置里的仓库。状态文件保存在 Docker volume `polling-state` 中，重启后不会重复处理已处理过的 PR version。
+启动后日志中应看到：
 
-### 3. 本地启动
+```text
+Starting Bitbucket Server polling service
+Polling configuration: ...
+Polling iteration #1 started
+```
+
+### 5. 直接用 Python 启动服务
 
 Python 需要 `>=3.12`：
 
@@ -85,19 +130,37 @@ export PR_AGENT_CONFIG_FILE="$PWD/.pr_agent.toml"
 export CONFIG__GIT_PROVIDER=bitbucket_server
 export BITBUCKET_SERVER__URL=https://bitbucket.example.com
 export BITBUCKET_SERVER__BEARER_TOKEN=replace-with-token
-export OPENAI__KEY=sk-replace-me
+export CONFIG__MODEL=openai/local-review-model
+export CONFIG__FALLBACK_MODELS=[]
+export CONFIG__CUSTOM_MODEL_MAX_TOKENS=32768
+export OPENAI__API_BASE=http://127.0.0.1:8000/v1
+export OPENAI__KEY=local-api-key
+export OPENAI_API_KEY=local-api-key
+export TOKENIZER__LOCAL_CACHE_DIR="$PWD/tokenizers"
+export TOKENIZER__ENABLE_LOCAL_CACHE=true
+export TOKENIZER__FALLBACK_TO_DOWNLOAD=false
+export TIKTOKEN_CACHE_DIR="$PWD/tokenizers"
 
 PYTHONPATH=. ./.venv/bin/python -m pr_agent.servers.bitbucket_server_polling
 ```
 
-Windows PowerShell 等价命令：
+Windows PowerShell：
 
 ```powershell
 $env:PR_AGENT_CONFIG_FILE="$PWD\.pr_agent.toml"
 $env:CONFIG__GIT_PROVIDER="bitbucket_server"
 $env:BITBUCKET_SERVER__URL="https://bitbucket.example.com"
 $env:BITBUCKET_SERVER__BEARER_TOKEN="replace-with-token"
-$env:OPENAI__KEY="sk-replace-me"
+$env:CONFIG__MODEL="openai/local-review-model"
+$env:CONFIG__FALLBACK_MODELS="[]"
+$env:CONFIG__CUSTOM_MODEL_MAX_TOKENS="32768"
+$env:OPENAI__API_BASE="http://127.0.0.1:8000/v1"
+$env:OPENAI__KEY="local-api-key"
+$env:OPENAI_API_KEY="local-api-key"
+$env:TOKENIZER__LOCAL_CACHE_DIR="$PWD\tokenizers"
+$env:TOKENIZER__ENABLE_LOCAL_CACHE="true"
+$env:TOKENIZER__FALLBACK_TO_DOWNLOAD="false"
+$env:TIKTOKEN_CACHE_DIR="$PWD\tokenizers"
 $env:PYTHONPATH="."
 .\.venv\Scripts\python.exe -m pr_agent.servers.bitbucket_server_polling
 ```
@@ -113,17 +176,6 @@ $env:PYTHONPATH="."
 
 不要把 token 写入 `.pr_agent.toml` 或提交到 git。使用 `.env`、CI/CD secret、Kubernetes Secret 或 systemd `EnvironmentFile`。
 
-## AI 模型配置
-
-默认模型来自 `pr_agent/settings/configuration.toml`。可以在 `.env` 中覆盖：
-
-```env
-CONFIG__MODEL=gpt-4o
-OPENAI__KEY=sk-replace-me
-```
-
-也可以使用 LiteLLM 支持的其他模型，只要补齐对应 provider 的环境变量。
-
 ## 轮询行为
 
 每轮执行步骤：
@@ -136,92 +188,41 @@ OPENAI__KEY=sk-replace-me
 
 如果你想让某个 PR 重新触发 review，可以删除状态文件里对应的 PR 条目，或直接清空 state volume。
 
-## 常用配置
-
-```toml
-[config]
-response_language = "zh-CN"
-ignore_pr_title = ["^\\[WIP\\]", "^Draft"]
-ignore_pr_source_branches = ["^dependabot/"]
-
-[pr_reviewer]
-require_security_review = true
-require_tests_review = true
-num_max_findings = 5
-
-[pr_code_suggestions]
-commitable_code_suggestions = true
-focus_only_on_problems = true
-```
-
-更多配置项见 `pr_agent/settings/configuration.toml`，只把需要覆盖的配置写进 `.pr_agent.toml`。
-
-## systemd 部署
-
-参考：
-
-```bash
-cat deployment/systemd/README.md
-```
-
-核心服务文件是：
-
-```text
-deployment/systemd/pr-agent-polling.service
-```
-
-## 验证
-
-本地基础验证：
-
-```bash
-PYTHONPATH=. ./.venv/bin/pytest tests/unittest/test_polling_state.py -q
-PYTHONPATH=. ./.venv/bin/pytest tests/unittest/test_bitbucket_provider.py -q
-```
-
-启动服务后，在日志里应该看到：
-
-```text
-Starting Bitbucket Server polling service
-Polling configuration: ...
-Polling iteration #1 started
-```
-
 ## 排错
-
-`Bitbucket Server polling is not enabled`
-
-确认 `.pr_agent.toml` 包含：
-
-```toml
-[bitbucket_server]
-enable_polling = true
-```
-
-`No repositories configured for polling`
-
-确认 `polling_repositories` 不为空，且格式是 `PROJECT/repo-slug`。
 
 `BITBUCKET_SERVER.URL not configured`
 
-确认容器或进程环境变量包含：
+确认设置了 `BITBUCKET_SERVER__URL`。
 
-```env
-BITBUCKET_SERVER__URL=https://bitbucket.example.com
-```
+`No repositories configured for polling`
 
-`Invalid or missing Bitbucket Server URL parsed from PR URL`
+确认 `.pr_agent.toml` 里 `polling_repositories` 不为空，且格式是 `PROJECT/repo-slug`。
 
-通常是没有设置 `BITBUCKET_SERVER__URL`，或 `.env` 没有被 Docker Compose 传入容器。使用：
+`Tokenizer not available in local cache and download is disabled`
 
-```bash
-docker compose exec pr-agent-polling env | grep BITBUCKET_SERVER
-```
+说明当前缓存目录没有可用 tokenizer，且 `TOKENIZER__FALLBACK_TO_DOWNLOAD=false` 已阻止外网下载。复制预热好的 `tokenizers` 目录，或在允许联网的机器上先运行 `python -m pr_agent.algo.tokenizer_manager download --cache-dir ./tokenizers --models openai/local-review-model o200k_base`。
+
+模型服务连接失败
+
+确认 `OPENAI__API_BASE` 可以从运行 PR-Agent 的进程或容器访问。容器内不要使用宿主机的 `127.0.0.1`，除非模型服务也在同一个容器里。
 
 `401` 或 `403`
 
-检查 service account token 是否有效，以及是否有目标项目和仓库的 PR 读取与评论权限。
+检查 Bitbucket service account token 是否有效，以及是否有目标项目和仓库的 PR 读取与评论权限。
 
-## 维护说明
+## 验证
 
-这个仓库已经删除了与目标部署无关的前端管理台、通用 MkDocs 站点和一次性项目总结文档。保留内容聚焦于 Bitbucket Server 轮询 reviewer 的源码、测试、容器部署和 systemd 部署。
+```bash
+PYTHONPATH=. ./.venv/bin/pytest tests/unittest/test_polling_state.py tests/unittest/test_bitbucket_provider.py -q
+docker compose config
+```
+
+## 目录
+
+- `pr_agent/servers/bitbucket_server_polling.py`：轮询服务入口
+- `pr_agent/git_providers/bitbucket_server_provider.py`：Bitbucket Server API 与 PR 评论发布
+- `.pr_agent.toml`：非敏感运行配置示例
+- `.env.example`：敏感配置和模型 endpoint 示例
+- `Dockerfile`、`docker-compose.yml`：容器部署
+- `deployment/systemd/`：systemd 部署示例
+- `docs/BITBUCKET_POLLING.md`：轮询机制说明

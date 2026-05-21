@@ -36,6 +36,7 @@ class TokenizerManager:
         if self.cache_dir:
             self.cache_dir = Path(self.cache_dir)
             self.cache_dir.mkdir(parents=True, exist_ok=True)
+            os.environ.setdefault("TIKTOKEN_CACHE_DIR", str(self.cache_dir))
 
     def download_tokenizers(self, models: Optional[List[str]] = None) -> Dict[str, bool]:
         """
