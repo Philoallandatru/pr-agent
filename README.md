@@ -214,7 +214,8 @@ Bitbucket PR 列表由底层客户端自动分页；内部 `limit=50` 是每页�
 
 `Failed to list pull requests ... path "rest/api/1.0/projects/..." does not exist at revision`
 
-通常是 `BITBUCKET_SERVER__URL` 配成了 REST API 地址、仓库地址或 PR 地址。这里必须配置 Bitbucket Server 站点根地址，例如：
+通常是 `BITBUCKET_SERVER__URL` 配成了 REST API 地址、仓库 `browse` 地址或 PR 地址，例如不要配置成 `https://bitbucket.example.com/projects/PROJ/repos/repo/browse`。
+推荐配置 Bitbucket Server 站点根地址，例如：
 
 ```env
 BITBUCKET_SERVER__URL=https://bitbucket.example.com
@@ -225,6 +226,12 @@ BITBUCKET_SERVER__URL=https://bitbucket.example.com
 ```env
 BITBUCKET_SERVER__URL=https://git.example.com/bitbucket
 ```
+
+程序会尽量在运行时把仓库地址或 PR 地址规范化为站点根地址，但配置文件里仍建议保持根地址，方便排查。
+
+`Failed to get git provider for .../browse/projects/.../pull-requests/...`
+
+这是 PR URL 被重复拼接的典型表现。先把 `BITBUCKET_SERVER__URL` 改成站点根地址；如果命令里有 `--pr_description.final_update_message=fales`，也要改成 `false`。
 
 `No repositories configured for polling`
 

@@ -40,6 +40,36 @@ async def test_poll_repository_does_not_mark_pr_processing_before_execution(tmp_
 
 
 @pytest.mark.asyncio
+async def test_poll_repository_normalizes_repo_browse_url(tmp_path):
+    state = PollingState(state_file=str(tmp_path / "polling-state.json"))
+    bitbucket_server_polling.get_settings().set(
+        "BITBUCKET_SERVER.URL",
+        "https://bitbucket.example.com/projects/PROJ/repos/repo/browse",
+    )
+
+    tasks = await bitbucket_server_polling.poll_repository(
+        FakeProvider(),
+        "PROJ",
+        "repo",
+        state,
+        ["/describe --pr_description.final_update_message=false"],
+    )
+
+    assert tasks[0]["pr_url"] == "https://bitbucket.example.com/projects/PROJ/repos/repo/pull-requests/123"
+
+
+def test_build_bitbucket_server_pr_url_normalizes_repo_browse_url():
+    bitbucket_server_webhook.get_settings().set(
+        "BITBUCKET_SERVER.URL",
+        "https://bitbucket.example.com/projects/PROJ/repos/repo/browse",
+    )
+
+    pr_url = bitbucket_server_webhook._build_bitbucket_server_pr_url("PROJ", "repo", 123)
+
+    assert pr_url == "https://bitbucket.example.com/projects/PROJ/repos/repo/pull-requests/123"
+
+
+@pytest.mark.asyncio
 async def test_run_commands_sequentially_returns_false_when_agent_fails(monkeypatch):
     class FailingAgent:
         async def handle_request(self, url, body):

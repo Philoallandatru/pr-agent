@@ -47,6 +47,10 @@ class TestBitbucketServerProvider:
         url = "https://bitbucket.company-server.url/projects/AAA/repos/my-repo"
         assert BitbucketServerProvider._normalize_bitbucket_server_url(url) == "https://bitbucket.company-server.url"
 
+    def test_normalize_bitbucket_server_browse_url(self):
+        url = "https://bitbucket.company-server.url/projects/AAA/repos/my-repo/browse"
+        assert BitbucketServerProvider._normalize_bitbucket_server_url(url) == "https://bitbucket.company-server.url"
+
     def mock_get_content_of_file(self, project_key, repository_slug, filename, at=None, markup=None):
         content_map = {
             '9c1cffdd9f276074bfb6fb3b70fbee62d298b058': 'file\nwith\nsome\nlines\nto\nemulate\na\nreal\nfile\n',

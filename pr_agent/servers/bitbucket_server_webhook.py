@@ -19,12 +19,20 @@ from starlette_context.middleware import RawContextMiddleware
 from pr_agent.agent.pr_agent import PRAgent
 from pr_agent.algo.utils import update_settings_from_args
 from pr_agent.config_loader import get_settings
+from pr_agent.git_providers.bitbucket_server_provider import BitbucketServerProvider
 from pr_agent.git_providers.utils import apply_repo_settings
 from pr_agent.log import LoggingFormat, get_logger, setup_logger
 from pr_agent.servers.utils import verify_signature
 
 setup_logger(fmt=LoggingFormat.JSON, level=get_settings().get("CONFIG.LOG_LEVEL", "DEBUG"))
 router = APIRouter()
+
+
+def _build_bitbucket_server_pr_url(project_key: str, repo_slug: str, pr_id: int) -> str:
+    bitbucket_server_url = BitbucketServerProvider._normalize_bitbucket_server_url(
+        get_settings().get("BITBUCKET_SERVER.URL", "")
+    )
+    return f"{bitbucket_server_url}/projects/{project_key}/repos/{repo_slug}/pull-requests/{pr_id}"
 
 
 def handle_request(
@@ -103,9 +111,7 @@ def should_process_pr_logic(data) -> bool:
         # Allow_only_specific_folders
         allowed_folders = get_settings().config.get("allow_only_specific_folders", [])
         if allowed_folders and pr_id and project_key and repo_slug:
-            from pr_agent.git_providers.bitbucket_server_provider import BitbucketServerProvider
-            bitbucket_server_url = get_settings().get("BITBUCKET_SERVER.URL", "")
-            pr_url = f"{bitbucket_server_url}/projects/{project_key}/repos/{repo_slug}/pull-requests/{pr_id}"
+            pr_url = _build_bitbucket_server_pr_url(project_key, repo_slug, pr_id)
             provider = BitbucketServerProvider(pr_url=pr_url)
             changed_files = provider.get_files()
             if changed_files:
@@ -147,8 +153,7 @@ async def handle_webhook(background_tasks: BackgroundTasks, request: Request):
     pr_id = data["pullRequest"]["id"]
     repository_name = data["pullRequest"]["toRef"]["repository"]["slug"]
     project_name = data["pullRequest"]["toRef"]["repository"]["project"]["key"]
-    bitbucket_server = get_settings().get("BITBUCKET_SERVER.URL")
-    pr_url = f"{bitbucket_server}/projects/{project_name}/repos/{repository_name}/pull-requests/{pr_id}"
+    pr_url = _build_bitbucket_server_pr_url(project_name, repository_name, pr_id)
 
     log_context["api_url"] = pr_url
     log_context["event"] = "pull_request"

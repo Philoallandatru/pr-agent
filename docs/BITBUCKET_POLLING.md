@@ -160,7 +160,9 @@ The polling flow uses the same filtering logic as webhooks:
 
 `BITBUCKET_SERVER.URL not configured`: set `BITBUCKET_SERVER__URL`.
 
-`Failed to list pull requests ... path "rest/api/1.0/projects/..." does not exist at revision`: set `BITBUCKET_SERVER__URL` to the Bitbucket Server site root only, not a REST API URL, repository URL, or PR URL. Use `https://bitbucket.example.com`, or `https://git.example.com/bitbucket` when Bitbucket is deployed under a context path.
+`Failed to list pull requests ... path "rest/api/1.0/projects/..." does not exist at revision`: set `BITBUCKET_SERVER__URL` to the Bitbucket Server site root only, not a REST API URL, repository `browse` URL, or PR URL. Use `https://bitbucket.example.com`, or `https://git.example.com/bitbucket` when Bitbucket is deployed under a context path.
+
+`Failed to get git provider for .../browse/projects/.../pull-requests/...`: the PR URL was built from a repository page URL such as `https://bitbucket.example.com/projects/PROJ/repos/repo/browse`. Change `BITBUCKET_SERVER__URL` to the site root. Also check command typos such as `--pr_description.final_update_message=fales`; the boolean value should be `false`.
 
 `No repositories configured for polling`: set `bitbucket_server.polling_repositories`.
 

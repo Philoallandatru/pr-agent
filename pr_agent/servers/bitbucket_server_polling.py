@@ -169,7 +169,9 @@ async def poll_repository(
                 continue
 
             # Build PR URL
-            bitbucket_server_url = get_settings().get("BITBUCKET_SERVER.URL")
+            bitbucket_server_url = BitbucketServerProvider._normalize_bitbucket_server_url(
+                get_settings().get("BITBUCKET_SERVER.URL")
+            )
             pr_url = f"{bitbucket_server_url}/projects/{project_key}/repos/{repo_slug}/pull-requests/{pr_id}"
 
             # Check if PR should be processed (apply filters)
@@ -255,10 +257,13 @@ async def polling_loop():
     )
 
     # Initialize Bitbucket provider
-    bitbucket_server_url = get_settings().get("BITBUCKET_SERVER.URL")
+    bitbucket_server_url = BitbucketServerProvider._normalize_bitbucket_server_url(
+        get_settings().get("BITBUCKET_SERVER.URL")
+    )
     if not bitbucket_server_url:
         get_logger().error("BITBUCKET_SERVER.URL not configured")
         return
+    get_settings().set("BITBUCKET_SERVER.URL", bitbucket_server_url)
 
     provider = BitbucketServerProvider()
 
