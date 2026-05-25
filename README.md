@@ -43,6 +43,7 @@ TOKENIZER__LOCAL_CACHE_DIR=/data/tokenizers
 TOKENIZER__ENABLE_LOCAL_CACHE=true
 TOKENIZER__FALLBACK_TO_DOWNLOAD=false
 TOKENIZER__OFFLINE_ESTIMATE_FALLBACK=true
+TOKENIZER__SKIP_TOKEN_COUNT=true
 TIKTOKEN_CACHE_DIR=/data/tokenizers
 ```
 
@@ -53,6 +54,7 @@ TIKTOKEN_CACHE_DIR=/data/tokenizers
 - `CONFIG__FALLBACK_MODELS=[]` 避免主模型失败后切到公网模型。
 - `TOKENIZER__FALLBACK_TO_DOWNLOAD=false` 表示不允许 tiktoken 访问公网下载 tokenizer。
 - `TOKENIZER__OFFLINE_ESTIMATE_FALLBACK=true` 表示没有本地 tokenizer/cache 时使用本地近似 token 估算，服务仍可启动；如果你希望缺缓存直接失败，可设为 `false`。
+- `TOKENIZER__SKIP_TOKEN_COUNT=true` 表示完全跳过 token 计算，不加载 tiktoken 编码文件，也不会访问外部 tokenizer URL。代价是 PR-Agent 不再提前按上下文窗口裁剪超大 diff，超长 PR 可能由模型服务返回上下文超限错误。
 - Docker Desktop 场景下，容器访问宿主机服务通常用 `http://host.docker.internal:端口/v1`。Linux 服务器上建议用模型服务的内网 IP、容器网络名或网关地址。
 
 编辑 `.pr_agent.toml`，配置要轮询的仓库：
@@ -151,6 +153,7 @@ export TOKENIZER__LOCAL_CACHE_DIR="$PWD/tokenizers"
 export TOKENIZER__ENABLE_LOCAL_CACHE=true
 export TOKENIZER__FALLBACK_TO_DOWNLOAD=false
 export TOKENIZER__OFFLINE_ESTIMATE_FALLBACK=true
+export TOKENIZER__SKIP_TOKEN_COUNT=true
 export TIKTOKEN_CACHE_DIR="$PWD/tokenizers"
 
 PYTHONPATH=. ./.venv/bin/python -m pr_agent.servers.bitbucket_server_polling
@@ -174,6 +177,7 @@ $env:TOKENIZER__LOCAL_CACHE_DIR="$PWD\tokenizers"
 $env:TOKENIZER__ENABLE_LOCAL_CACHE="true"
 $env:TOKENIZER__FALLBACK_TO_DOWNLOAD="false"
 $env:TOKENIZER__OFFLINE_ESTIMATE_FALLBACK="true"
+$env:TOKENIZER__SKIP_TOKEN_COUNT="true"
 $env:TIKTOKEN_CACHE_DIR="$PWD\tokenizers"
 $env:PYTHONPATH="."
 .\.venv\Scripts\python.exe -m pr_agent.servers.bitbucket_server_polling

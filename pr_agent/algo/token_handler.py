@@ -40,6 +40,18 @@ class ApproximateTokenEncoder:
         return [0] * estimated_tokens
 
 
+class NoOpTokenEncoder:
+    """
+    Token counting disabled encoder.
+
+    Use this only for deployments that prefer avoiding all tokenizer work over strict
+    context-size enforcement.
+    """
+
+    def encode(self, text: str, *args, **kwargs) -> list[int]:
+        return []
+
+
 class TokenEncoder:
     _encoder_instance = None
     _model = None
@@ -73,6 +85,18 @@ class TokenEncoder:
     @classmethod
     def _get_offline_estimate_fallback(cls) -> bool:
         return get_settings().get("tokenizer.offline_estimate_fallback", True)
+
+    @classmethod
+    def _should_skip_token_count(cls) -> bool:
+        return get_settings().get("tokenizer.skip_token_count", False)
+
+    @classmethod
+    def _get_no_op_encoder(cls, model: str) -> NoOpTokenEncoder:
+        get_logger().warning(
+            f"Token counting is disabled for {model}. "
+            "PR-Agent will not enforce context limits before sending prompts to the model."
+        )
+        return NoOpTokenEncoder()
 
     @classmethod
     def _get_approximate_encoder(cls, model: str) -> ApproximateTokenEncoder:
@@ -125,6 +149,10 @@ class TokenEncoder:
             with cls._lock:  # Lock acquisition to ensure thread safety
                 if cls._encoder_instance is None or model != cls._model:
                     cls._model = model
+
+                    if cls._should_skip_token_count():
+                        cls._encoder_instance = cls._get_no_op_encoder(cls._model)
+                        return cls._encoder_instance
 
                     # Try loading from local cache first
                     cls._encoder_instance = cls._load_from_local_cache(cls._model)

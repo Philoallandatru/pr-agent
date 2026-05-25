@@ -36,6 +36,7 @@ local_cache_dir = "/data/tokenizers"
 enable_local_cache = true
 fallback_to_download = false
 offline_estimate_fallback = true
+skip_token_count = true
 ```
 
 Keep secrets and endpoint addresses in environment variables:
@@ -76,11 +77,12 @@ Set:
 TOKENIZER__ENABLE_LOCAL_CACHE=true
 TOKENIZER__FALLBACK_TO_DOWNLOAD=false
 TOKENIZER__OFFLINE_ESTIMATE_FALLBACK=true
+TOKENIZER__SKIP_TOKEN_COUNT=true
 TOKENIZER__LOCAL_CACHE_DIR=/data/tokenizers
 TIKTOKEN_CACHE_DIR=/data/tokenizers
 ```
 
-With this setting, PR-Agent will not download tokenizer data from public URLs. If the tiktoken cache is missing, `TOKENIZER__OFFLINE_ESTIMATE_FALLBACK=true` uses local approximate token counting so the service can still start with local/intranet models. Set it to `false` if you prefer to fail fast on missing cache. For accurate token counts, prewarm cache on a machine that is allowed to access tokenizer assets, then copy the whole directory to the deployment host:
+With this setting, PR-Agent will not download tokenizer data from public URLs. `TOKENIZER__SKIP_TOKEN_COUNT=true` bypasses tiktoken entirely and never loads tokenizer encodings; use it when the model service already enforces context limits or when avoiding outbound access is more important than local prompt sizing. If you keep token counting enabled and the tiktoken cache is missing, `TOKENIZER__OFFLINE_ESTIMATE_FALLBACK=true` uses local approximate token counting so the service can still start with local/intranet models. Set it to `false` if you prefer to fail fast on missing cache. For accurate token counts, prewarm cache on a machine that is allowed to access tokenizer assets, then copy the whole directory to the deployment host:
 
 ```bash
 python -m pr_agent.algo.tokenizer_manager download \
@@ -118,6 +120,7 @@ export TOKENIZER__LOCAL_CACHE_DIR="$PWD/tokenizers"
 export TOKENIZER__ENABLE_LOCAL_CACHE=true
 export TOKENIZER__FALLBACK_TO_DOWNLOAD=false
 export TOKENIZER__OFFLINE_ESTIMATE_FALLBACK=true
+export TOKENIZER__SKIP_TOKEN_COUNT=true
 export TIKTOKEN_CACHE_DIR="$PWD/tokenizers"
 PYTHONPATH=. python -m pr_agent.servers.bitbucket_server_polling
 ```

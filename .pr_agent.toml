@@ -44,3 +44,4 @@ local_cache_dir = "/data/tokenizers"
 enable_local_cache = true
 fallback_to_download = false
 offline_estimate_fallback = true
+skip_token_count = true

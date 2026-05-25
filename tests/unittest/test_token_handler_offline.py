@@ -1,7 +1,7 @@
 import pytest
 
 from pr_agent.algo import token_handler
-from pr_agent.algo.token_handler import ApproximateTokenEncoder, TokenEncoder
+from pr_agent.algo.token_handler import ApproximateTokenEncoder, NoOpTokenEncoder, TokenEncoder
 from pr_agent.config_loader import get_settings
 
 
@@ -15,6 +15,7 @@ def reset_token_encoder():
         "TOKENIZER.ENABLE_LOCAL_CACHE": get_settings().get("TOKENIZER.ENABLE_LOCAL_CACHE", None),
         "TOKENIZER.FALLBACK_TO_DOWNLOAD": get_settings().get("TOKENIZER.FALLBACK_TO_DOWNLOAD", None),
         "TOKENIZER.OFFLINE_ESTIMATE_FALLBACK": get_settings().get("TOKENIZER.OFFLINE_ESTIMATE_FALLBACK", None),
+        "TOKENIZER.SKIP_TOKEN_COUNT": get_settings().get("TOKENIZER.SKIP_TOKEN_COUNT", None),
     }
     yield
     TokenEncoder._encoder_instance = old_encoder
@@ -43,6 +44,31 @@ def test_strict_offline_uses_approximate_encoder_without_tiktoken_download(tmp_p
     assert len(encoder.encode("hello world")) > 0
 
 
+def test_skip_token_count_bypasses_tiktoken_loading(tmp_path, monkeypatch):
+    def fail_get_encoding(name):
+        raise AssertionError(f"unexpected tiktoken download path for {name}")
+
+    def fail_encoding_for_model(name):
+        raise AssertionError(f"unexpected tiktoken model path for {name}")
+
+    monkeypatch.setattr(token_handler, "get_encoding", fail_get_encoding)
+    monkeypatch.setattr(token_handler, "encoding_for_model", fail_encoding_for_model)
+    get_settings().set("CONFIG.MODEL", "ollama/Qwen3.6-35B")
+    get_settings().set("TOKENIZER.LOCAL_CACHE_DIR", str(tmp_path))
+    get_settings().set("TOKENIZER.ENABLE_LOCAL_CACHE", True)
+    get_settings().set("TOKENIZER.FALLBACK_TO_DOWNLOAD", True)
+    get_settings().set("TOKENIZER.OFFLINE_ESTIMATE_FALLBACK", False)
+    get_settings().set("TOKENIZER.SKIP_TOKEN_COUNT", True)
+
+    TokenEncoder._encoder_instance = None
+    TokenEncoder._model = None
+
+    encoder = TokenEncoder.get_token_encoder()
+
+    assert isinstance(encoder, NoOpTokenEncoder)
+    assert encoder.encode("hello world") == []
+
+
 def test_strict_offline_can_fail_fast_when_approximate_fallback_disabled(tmp_path, monkeypatch):
     def fail_get_encoding(name):
         raise AssertionError(f"unexpected tiktoken download path for {name}")
@@ -53,6 +79,7 @@ def test_strict_offline_can_fail_fast_when_approximate_fallback_disabled(tmp_pat
     get_settings().set("TOKENIZER.ENABLE_LOCAL_CACHE", True)
     get_settings().set("TOKENIZER.FALLBACK_TO_DOWNLOAD", False)
     get_settings().set("TOKENIZER.OFFLINE_ESTIMATE_FALLBACK", False)
+    get_settings().set("TOKENIZER.SKIP_TOKEN_COUNT", False)
 
     TokenEncoder._encoder_instance = None
     TokenEncoder._model = None
