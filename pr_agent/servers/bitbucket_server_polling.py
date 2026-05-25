@@ -17,7 +17,11 @@ from pr_agent.git_providers.bitbucket_server_provider import BitbucketServerProv
 from pr_agent.log import LoggingFormat, get_logger, setup_logger
 from pr_agent.monitoring.metrics import PerformanceTracker, StructuredLogger, metrics
 from pr_agent.notifications import notify_review_completed, notify_review_failed, notify_review_started
-from pr_agent.servers.bitbucket_server_webhook import _run_commands_sequentially, should_process_pr_logic
+from pr_agent.servers.bitbucket_server_webhook import (
+    _ensure_bitbucket_server_provider_config,
+    _run_commands_sequentially,
+    should_process_pr_logic,
+)
 from pr_agent.storage.polling_state import PollingState
 
 
@@ -53,6 +57,7 @@ def process_pr_sync(pr_url: str, commands: list, log_context: dict, result_queue
     """
     success = False
     try:
+        _ensure_bitbucket_server_provider_config()
         success = asyncio.run(process_pr(pr_url, commands, log_context))
     except Exception as e:
         get_logger().error(f"Error processing PR {pr_url}: {e}", artifact={"traceback": traceback.format_exc()})
@@ -148,6 +153,7 @@ async def poll_repository(
         List of tasks to process
     """
     repo_key = f"{project_key}/{repo_slug}"
+    _ensure_bitbucket_server_provider_config()
     tasks = []
 
     try:
@@ -234,6 +240,7 @@ async def polling_loop():
     Main polling loop - continuously polls configured repositories
     """
     get_logger().info("Starting Bitbucket Server polling service")
+    _ensure_bitbucket_server_provider_config()
 
     # Initialize state manager
     state = PollingState()

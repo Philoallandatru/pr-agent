@@ -28,7 +28,18 @@ setup_logger(fmt=LoggingFormat.JSON, level=get_settings().get("CONFIG.LOG_LEVEL"
 router = APIRouter()
 
 
+def _ensure_bitbucket_server_provider_config():
+    git_provider = get_settings().get("CONFIG.GIT_PROVIDER", None)
+    if git_provider != "bitbucket_server":
+        get_logger().warning(
+            f"Bitbucket Server service requires config.git_provider='bitbucket_server'; got '{git_provider}'. "
+            "Overriding it for this request."
+        )
+        get_settings().set("CONFIG.GIT_PROVIDER", "bitbucket_server")
+
+
 def _build_bitbucket_server_pr_url(project_key: str, repo_slug: str, pr_id: int) -> str:
+    _ensure_bitbucket_server_provider_config()
     bitbucket_server_url = BitbucketServerProvider._normalize_bitbucket_server_url(
         get_settings().get("BITBUCKET_SERVER.URL", "")
     )
@@ -136,6 +147,7 @@ async def redirect_to_webhook():
 
 @router.post("/webhook")
 async def handle_webhook(background_tasks: BackgroundTasks, request: Request):
+    _ensure_bitbucket_server_provider_config()
     log_context = {"server_type": "bitbucket_server"}
     data = await request.json()
     get_logger().info(json.dumps(data))
@@ -207,6 +219,7 @@ async def handle_webhook(background_tasks: BackgroundTasks, request: Request):
 
 
 async def _run_commands_sequentially(commands: List[str], url: str, log_context: dict):
+    _ensure_bitbucket_server_provider_config()
     get_logger().info(f"Running commands sequentially: {commands}")
     if commands is None:
         return True
@@ -229,6 +242,7 @@ async def _run_commands_sequentially(commands: List[str], url: str, log_context:
     return True
 
 def _process_command(command: str, url) -> str:
+    _ensure_bitbucket_server_provider_config()
     # don't think we need this
     apply_repo_settings(url)
     # Process the command string

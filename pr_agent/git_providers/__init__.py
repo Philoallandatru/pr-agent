@@ -1,3 +1,5 @@
+import traceback
+
 from starlette_context import context
 
 from pr_agent.config_loader import get_settings
@@ -13,6 +15,7 @@ from pr_agent.git_providers.github_provider import GithubProvider
 from pr_agent.git_providers.gitlab_provider import GitLabProvider
 from pr_agent.git_providers.local_git_provider import LocalGitProvider
 from pr_agent.git_providers.gitea_provider import GiteaProvider
+from pr_agent.log import get_logger
 
 _GIT_PROVIDERS = {
     'github': GithubProvider,
@@ -49,12 +52,13 @@ def get_git_provider_with_context(pr_url) -> GitProvider:
         pass  # we are not in a context environment (CLI)
 
     # check if context["git_provider"]["pr_url"] exists
-    if is_context_env and context.get("git_provider", {}).get("pr_url", {}):
-        git_provider = context["git_provider"]["pr_url"]
+    if is_context_env and context.get("git_provider", {}).get(pr_url):
+        git_provider = context["git_provider"][pr_url]
         # possibly check if the git_provider is still valid, or if some reset is needed
         # ...
         return git_provider
     else:
+        provider_id = None
         try:
             provider_id = get_settings().config.git_provider
             if provider_id not in _GIT_PROVIDERS:
@@ -64,4 +68,10 @@ def get_git_provider_with_context(pr_url) -> GitProvider:
                 context["git_provider"] = {pr_url: git_provider}
             return git_provider
         except Exception as e:
-            raise ValueError(f"Failed to get git provider for {pr_url}") from e
+            get_logger().error(
+                f"Failed to get git provider for {pr_url} using provider '{provider_id}': {e}",
+                artifact={"traceback": traceback.format_exc()},
+            )
+            raise ValueError(
+                f"Failed to get git provider for {pr_url} using provider '{provider_id}': {e}"
+            ) from e

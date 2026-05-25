@@ -121,3 +121,23 @@ def test_process_command_preserves_quoted_config_value(monkeypatch):
 
     assert command == "/review"
     assert updated_args == ["--pr_reviewer.extra_instructions=focus on retry safety"]
+
+
+def test_process_command_forces_bitbucket_server_provider(monkeypatch):
+    old_provider = bitbucket_server_webhook.get_settings().get("CONFIG.GIT_PROVIDER", None)
+    seen_providers = []
+
+    def fake_apply_repo_settings(url):
+        seen_providers.append(bitbucket_server_webhook.get_settings().get("CONFIG.GIT_PROVIDER"))
+
+    monkeypatch.setattr(bitbucket_server_webhook, "apply_repo_settings", fake_apply_repo_settings)
+    monkeypatch.setattr(bitbucket_server_webhook, "update_settings_from_args", lambda args: [])
+
+    bitbucket_server_webhook.get_settings().set("CONFIG.GIT_PROVIDER", "github")
+    try:
+        command = bitbucket_server_webhook._process_command("/review", "https://bitbucket.example.com/pr")
+    finally:
+        bitbucket_server_webhook.get_settings().set("CONFIG.GIT_PROVIDER", old_provider)
+
+    assert command == "/review"
+    assert seen_providers == ["bitbucket_server"]
