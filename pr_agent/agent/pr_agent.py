@@ -4,7 +4,7 @@ from functools import partial
 from pr_agent.algo.ai_handlers.base_ai_handler import BaseAiHandler
 from pr_agent.algo.ai_handlers.litellm_ai_handler import LiteLLMAIHandler
 from pr_agent.algo.cli_args import CliArgs
-from pr_agent.algo.utils import update_settings_from_args
+from pr_agent.algo.utils import apply_response_language_instruction, update_settings_from_args
 from pr_agent.config_loader import get_settings
 from pr_agent.git_providers.utils import apply_repo_settings
 from pr_agent.log import get_logger
@@ -75,27 +75,8 @@ class PRAgent:
         # Update settings from args
         args = update_settings_from_args(args)
 
-        # Append the response language in the extra instructions
-        response_language = get_settings().config.get('response_language', 'en-us')
-        if response_language.lower() != 'en-us':
-            get_logger().info(f'User has set the response language to: {response_language}')
-            for key in get_settings():
-                setting = get_settings().get(key)
-                if str(type(setting)) == "<class 'dynaconf.utils.boxing.DynaBox'>":
-                    if hasattr(setting, 'extra_instructions'):
-                        current_extra_instructions = setting.extra_instructions
-                        
-                        # Define the language-specific instruction and the separator
-                        lang_instruction_text = f"Your response MUST be written in the language corresponding to locale code: '{response_language}'. This is crucial."
-                        separator_text = "\n======\n\nIn addition, "
-
-                        # Check if the specific language instruction is already present to avoid duplication
-                        if lang_instruction_text not in str(current_extra_instructions):
-                            if current_extra_instructions: # If there's existing text
-                                setting.extra_instructions = str(current_extra_instructions) + separator_text + lang_instruction_text
-                            else: # If extra_instructions was None or empty
-                                setting.extra_instructions = lang_instruction_text
-                        # If lang_instruction_text is already present, do nothing.
+        # Append the response language in the extra instructions.
+        apply_response_language_instruction()
 
         action = action.lstrip("/").lower()
         if action not in command2class:
