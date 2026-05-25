@@ -1,8 +1,9 @@
-from threading import Lock
-from math import ceil
-import re
+import hashlib
 import os
+import re
+from math import ceil
 from pathlib import Path
+from threading import Lock
 
 from jinja2 import Environment, StrictUndefined
 from tiktoken import encoding_for_model, get_encoding
@@ -21,10 +22,65 @@ class ModelTypeValidator:
         return 'claude' in model_name
 
 
+class ApproximateTokenEncoder:
+    """
+    Offline fallback encoder for local/intranet models when no tiktoken cache is available.
+
+    It intentionally only estimates token counts. This keeps strict offline deployments from
+    contacting public tokenizer URLs during startup or review processing.
+    """
+
+    def encode(self, text: str, *args, **kwargs) -> list[int]:
+        if not text:
+            return []
+
+        ascii_chars = sum(1 for char in text if ord(char) < 128)
+        non_ascii_chars = len(text) - ascii_chars
+        estimated_tokens = max(1, ceil(ascii_chars / 4) + ceil(non_ascii_chars * 1.5))
+        return [0] * estimated_tokens
+
+
 class TokenEncoder:
     _encoder_instance = None
     _model = None
     _lock = Lock()  # Create a lock object
+    _KNOWN_ENCODING_URLS = {
+        "o200k_base": "https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken",
+        "cl100k_base": "https://openaipublic.blob.core.windows.net/encodings/cl100k_base.tiktoken",
+        "p50k_base": "https://openaipublic.blob.core.windows.net/encodings/p50k_base.tiktoken",
+        "r50k_base": "https://openaipublic.blob.core.windows.net/encodings/r50k_base.tiktoken",
+    }
+
+    @classmethod
+    def _resolve_encoding_name(cls, model: str) -> str:
+        model_lower = (model or "").lower()
+        if model_lower in cls._KNOWN_ENCODING_URLS:
+            return model_lower
+        if "gpt-4o" in model_lower or re.match(r"^(openai/)?o[1-9](-mini|-preview)?", model_lower):
+            return "o200k_base"
+        if "gpt" in model_lower:
+            return "cl100k_base"
+        return "o200k_base"
+
+    @classmethod
+    def _get_tiktoken_cache_path(cls, cache_path: Path, encoding_name: str) -> Path | None:
+        blob_url = cls._KNOWN_ENCODING_URLS.get(encoding_name)
+        if not blob_url:
+            return None
+        cache_key = hashlib.sha1(blob_url.encode()).hexdigest()
+        return cache_path / cache_key
+
+    @classmethod
+    def _get_offline_estimate_fallback(cls) -> bool:
+        return get_settings().get("tokenizer.offline_estimate_fallback", True)
+
+    @classmethod
+    def _get_approximate_encoder(cls, model: str) -> ApproximateTokenEncoder:
+        get_logger().warning(
+            f"Using approximate offline token counting for {model}. "
+            "Prewarm the tiktoken cache for more accurate context sizing."
+        )
+        return ApproximateTokenEncoder()
 
     @classmethod
     def _load_from_local_cache(cls, model: str):
@@ -50,16 +106,11 @@ class TokenEncoder:
                 return None
             os.environ.setdefault("TIKTOKEN_CACHE_DIR", str(cache_path))
 
-            # Check if tokenizer marker file exists
-            cache_file = cache_path / f"{model}.tiktoken"
-            if cache_file.exists():
-                get_logger().info(f"Loading tokenizer from local cache: {model}")
-                # tiktoken handles caching internally, we just verify the marker exists
-                # and let tiktoken load from its own cache
-                if "gpt" in model:
-                    return encoding_for_model(model)
-                else:
-                    return get_encoding(model if model in ["o200k_base", "cl100k_base", "p50k_base"] else "o200k_base")
+            encoding_name = cls._resolve_encoding_name(model)
+            cache_file = cls._get_tiktoken_cache_path(cache_path, encoding_name)
+            if cache_file and cache_file.exists():
+                get_logger().info(f"Loading tokenizer from local cache: {encoding_name}")
+                return get_encoding(encoding_name)
 
             return None
 
@@ -81,6 +132,16 @@ class TokenEncoder:
                     if cls._encoder_instance is None:
                         # Fall back to standard loading (may download if not cached by tiktoken)
                         fallback_to_download = get_settings().get("tokenizer.fallback_to_download", True)
+
+                        if not fallback_to_download:
+                            if cls._get_offline_estimate_fallback():
+                                cls._encoder_instance = cls._get_approximate_encoder(cls._model)
+                                return cls._encoder_instance
+
+                            raise RuntimeError(
+                                f"Tokenizer not available in local cache and download is disabled for {cls._model}. "
+                                "Prewarm the tiktoken cache or set tokenizer.offline_estimate_fallback=true."
+                            )
 
                         try:
                             if "gpt" in cls._model:

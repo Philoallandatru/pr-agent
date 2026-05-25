@@ -203,6 +203,7 @@ extra_instructions = ""
 local_cache_dir = ""  # Custom tokenizer storage path (e.g., "/opt/pr-agent/tokenizers")
 enable_local_cache = false
 fallback_to_download = true  # Set to false for strict offline mode in internal networks
+offline_estimate_fallback = true  # Use approximate local token counts when strict offline cache is missing
 
 [repo_context]
 enable_full_context = false  # Enable full repository context analysis

@@ -42,6 +42,7 @@ OPENAI_API_KEY=local-api-key
 TOKENIZER__LOCAL_CACHE_DIR=/data/tokenizers
 TOKENIZER__ENABLE_LOCAL_CACHE=true
 TOKENIZER__FALLBACK_TO_DOWNLOAD=false
+TOKENIZER__OFFLINE_ESTIMATE_FALLBACK=true
 TIKTOKEN_CACHE_DIR=/data/tokenizers
 ```
 
@@ -50,7 +51,8 @@ TIKTOKEN_CACHE_DIR=/data/tokenizers
 - `OPENAI__API_BASE` 指向你已经部署好的 OpenAI-compatible 服务。
 - `CONFIG__MODEL` 使用 LiteLLM 的 OpenAI provider 写法，建议保留 `openai/` 前缀。
 - `CONFIG__FALLBACK_MODELS=[]` 避免主模型失败后切到公网模型。
-- `TOKENIZER__FALLBACK_TO_DOWNLOAD=false` 表示没有本地 tokenizer/cache 时直接失败，不访问外网。
+- `TOKENIZER__FALLBACK_TO_DOWNLOAD=false` 表示不允许 tiktoken 访问公网下载 tokenizer。
+- `TOKENIZER__OFFLINE_ESTIMATE_FALLBACK=true` 表示没有本地 tokenizer/cache 时使用本地近似 token 估算，服务仍可启动；如果你希望缺缓存直接失败，可设为 `false`。
 - Docker Desktop 场景下，容器访问宿主机服务通常用 `http://host.docker.internal:端口/v1`。Linux 服务器上建议用模型服务的内网 IP、容器网络名或网关地址。
 
 编辑 `.pr_agent.toml`，配置要轮询的仓库：
@@ -148,6 +150,7 @@ export OPENAI_API_KEY=local-api-key
 export TOKENIZER__LOCAL_CACHE_DIR="$PWD/tokenizers"
 export TOKENIZER__ENABLE_LOCAL_CACHE=true
 export TOKENIZER__FALLBACK_TO_DOWNLOAD=false
+export TOKENIZER__OFFLINE_ESTIMATE_FALLBACK=true
 export TIKTOKEN_CACHE_DIR="$PWD/tokenizers"
 
 PYTHONPATH=. ./.venv/bin/python -m pr_agent.servers.bitbucket_server_polling
@@ -170,6 +173,7 @@ $env:OPENAI_API_KEY="local-api-key"
 $env:TOKENIZER__LOCAL_CACHE_DIR="$PWD\tokenizers"
 $env:TOKENIZER__ENABLE_LOCAL_CACHE="true"
 $env:TOKENIZER__FALLBACK_TO_DOWNLOAD="false"
+$env:TOKENIZER__OFFLINE_ESTIMATE_FALLBACK="true"
 $env:TIKTOKEN_CACHE_DIR="$PWD\tokenizers"
 $env:PYTHONPATH="."
 .\.venv\Scripts\python.exe -m pr_agent.servers.bitbucket_server_polling
@@ -239,7 +243,7 @@ BITBUCKET_SERVER__URL=https://git.example.com/bitbucket
 
 `Tokenizer not available in local cache and download is disabled`
 
-说明当前缓存目录没有可用 tokenizer，且 `TOKENIZER__FALLBACK_TO_DOWNLOAD=false` 已阻止外网下载。复制预热好的 `tokenizers` 目录，或在允许联网的机器上先运行 `python -m pr_agent.algo.tokenizer_manager download --cache-dir ./tokenizers --models openai/local-review-model o200k_base`。
+说明当前缓存目录没有可用 tokenizer，且 `TOKENIZER__FALLBACK_TO_DOWNLOAD=false` 已阻止外网下载。默认情况下 `TOKENIZER__OFFLINE_ESTIMATE_FALLBACK=true` 会改用本地近似 token 估算并继续运行；如果你设置为 `false`，则需要复制预热好的 `tokenizers` 目录，或在允许联网的机器上先运行 `python -m pr_agent.algo.tokenizer_manager download --cache-dir ./tokenizers --models openai/local-review-model o200k_base`。
 
 模型服务连接失败
 

@@ -35,6 +35,7 @@ polling_review_timeout_seconds = 1800
 local_cache_dir = "/data/tokenizers"
 enable_local_cache = true
 fallback_to_download = false
+offline_estimate_fallback = true
 ```
 
 Keep secrets and endpoint addresses in environment variables:
@@ -74,11 +75,12 @@ Set:
 ```env
 TOKENIZER__ENABLE_LOCAL_CACHE=true
 TOKENIZER__FALLBACK_TO_DOWNLOAD=false
+TOKENIZER__OFFLINE_ESTIMATE_FALLBACK=true
 TOKENIZER__LOCAL_CACHE_DIR=/data/tokenizers
 TIKTOKEN_CACHE_DIR=/data/tokenizers
 ```
 
-With this setting, missing tokenizer/cache data fails fast instead of falling back to public downloads. Prewarm cache on a machine that is allowed to access tokenizer assets, then copy the whole directory to the deployment host:
+With this setting, PR-Agent will not download tokenizer data from public URLs. If the tiktoken cache is missing, `TOKENIZER__OFFLINE_ESTIMATE_FALLBACK=true` uses local approximate token counting so the service can still start with local/intranet models. Set it to `false` if you prefer to fail fast on missing cache. For accurate token counts, prewarm cache on a machine that is allowed to access tokenizer assets, then copy the whole directory to the deployment host:
 
 ```bash
 python -m pr_agent.algo.tokenizer_manager download \
@@ -115,6 +117,7 @@ export OPENAI_API_KEY=local-api-key
 export TOKENIZER__LOCAL_CACHE_DIR="$PWD/tokenizers"
 export TOKENIZER__ENABLE_LOCAL_CACHE=true
 export TOKENIZER__FALLBACK_TO_DOWNLOAD=false
+export TOKENIZER__OFFLINE_ESTIMATE_FALLBACK=true
 export TIKTOKEN_CACHE_DIR="$PWD/tokenizers"
 PYTHONPATH=. python -m pr_agent.servers.bitbucket_server_polling
 ```
