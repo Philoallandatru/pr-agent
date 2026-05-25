@@ -118,7 +118,10 @@ class PollingState:
         if not state:
             return False
 
-        return state.get('version') == version
+        if state.get('version') != version:
+            return False
+
+        return state.get('status') in {"completed", "filtered"}
 
     def is_pr_updated(self, repo_key: str, pr_id: int, version: int) -> bool:
         """
@@ -149,6 +152,7 @@ class PollingState:
 
         with self._lock:
             repos_to_remove = []
+            total_prs_removed = 0
 
             for repo_key, prs in self._state.items():
                 prs_to_remove = []
@@ -165,6 +169,7 @@ class PollingState:
                 # Remove old PRs
                 for pr_id in prs_to_remove:
                     del prs[pr_id]
+                total_prs_removed += len(prs_to_remove)
 
                 # Mark empty repos for removal
                 if not prs:
@@ -174,9 +179,9 @@ class PollingState:
             for repo_key in repos_to_remove:
                 del self._state[repo_key]
 
-            if prs_to_remove or repos_to_remove:
+            if total_prs_removed or repos_to_remove:
                 get_logger().info(
-                    f"Cleaned up {len(prs_to_remove)} old PR entries from {len(repos_to_remove)} repos"
+                    f"Cleaned up {total_prs_removed} old PR entries from {len(repos_to_remove)} repos"
                 )
                 self._save_state()
 

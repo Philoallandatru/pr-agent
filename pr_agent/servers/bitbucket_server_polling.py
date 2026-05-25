@@ -7,19 +7,17 @@ and triggers review commands.
 
 import asyncio
 import multiprocessing
+import queue
 import traceback
 import time
-from collections import deque
-from datetime import datetime
 
-from pr_agent.agent.pr_agent import PRAgent
 from pr_agent.config_loader import get_settings
 from pr_agent.git_providers.bitbucket_server_provider import BitbucketServerProvider
 from pr_agent.log import LoggingFormat, get_logger, setup_logger
-from pr_agent.servers.bitbucket_server_webhook import should_process_pr_logic, _run_commands_sequentially
+from pr_agent.monitoring.metrics import PerformanceTracker, StructuredLogger, metrics
+from pr_agent.notifications import notify_review_completed, notify_review_failed, notify_review_started
+from pr_agent.servers.bitbucket_server_webhook import _run_commands_sequentially, should_process_pr_logic
 from pr_agent.storage.polling_state import PollingState
-from pr_agent.monitoring.metrics import metrics, PerformanceTracker, StructuredLogger
-from pr_agent.notifications import notify_review_started, notify_review_completed, notify_review_failed
 
 setup_logger(fmt=LoggingFormat.JSON, level=get_settings().get("CONFIG.LOG_LEVEL", "DEBUG"))
 
@@ -27,7 +25,14 @@ setup_logger(fmt=LoggingFormat.JSON, level=get_settings().get("CONFIG.LOG_LEVEL"
 structured_logger = StructuredLogger(__name__)
 
 
-def process_pr_sync(pr_url: str, commands: list, log_context: dict):
+async def _safe_notify(notification, *args):
+    try:
+        await notification(*args)
+    except Exception as e:
+        get_logger().warning(f"Notification failed: {e}")
+
+
+def process_pr_sync(pr_url: str, commands: list, log_context: dict, result_queue=None):
     """
     Synchronous wrapper for PR processing (for multiprocessing)
 
@@ -35,11 +40,23 @@ def process_pr_sync(pr_url: str, commands: list, log_context: dict):
         pr_url: PR URL
         commands: List of commands to run
         log_context: Logging context
+        result_queue: Optional multiprocessing queue for reporting status
     """
+    success = False
     try:
-        asyncio.run(_run_commands_sequentially(commands, pr_url, log_context))
+        success = asyncio.run(process_pr(pr_url, commands, log_context))
     except Exception as e:
         get_logger().error(f"Error processing PR {pr_url}: {e}", artifact={"traceback": traceback.format_exc()})
+    finally:
+        if result_queue is not None:
+            result_queue.put(
+                {
+                    "repo_key": log_context.get("repo"),
+                    "pr_id": log_context.get("pr_id"),
+                    "pr_version": log_context.get("pr_version"),
+                    "success": success,
+                }
+            )
 
 
 async def process_pr(pr_url: str, commands: list, log_context: dict):
@@ -52,8 +69,8 @@ async def process_pr(pr_url: str, commands: list, log_context: dict):
         log_context: Logging context
     """
     start_time = time.time()
-    repo_name = log_context.get('repository', 'unknown')
-    pr_number = log_context.get('pr_number', 'unknown')
+    repo_name = log_context.get('repository') or log_context.get('repo', 'unknown')
+    pr_number = log_context.get('pr_number') or log_context.get('pr_id', 'unknown')
     pr_author = log_context.get('author', 'unknown')
     pr_title = log_context.get('title', '')
 
@@ -68,11 +85,14 @@ async def process_pr(pr_url: str, commands: list, log_context: dict):
 
     try:
         # Notify review started
-        await notify_review_started(pr_data)
+        await _safe_notify(notify_review_started, pr_data)
 
         with PerformanceTracker("process_pr") as tracker:
             tracker.add_metadata(pr_url=pr_url, repository=repo_name)
-            await _run_commands_sequentially(commands, pr_url, log_context)
+            success = await _run_commands_sequentially(commands, pr_url, log_context)
+
+        if not success:
+            raise RuntimeError(f"One or more PR-Agent commands failed for {pr_url}")
 
         duration = time.time() - start_time
         metrics.track_pr_review(repo_name, "success", duration)
@@ -84,7 +104,8 @@ async def process_pr(pr_url: str, commands: list, log_context: dict):
             'commands': commands,
             'status': 'success'
         }
-        await notify_review_completed(pr_data, review_data)
+        await _safe_notify(notify_review_completed, pr_data, review_data)
+        return True
 
     except Exception as e:
         duration = time.time() - start_time
@@ -93,7 +114,8 @@ async def process_pr(pr_url: str, commands: list, log_context: dict):
         get_logger().error(f"Error processing PR: {e}", artifact={"traceback": traceback.format_exc()})
 
         # Notify review failed
-        await notify_review_failed(pr_data, str(e))
+        await _safe_notify(notify_review_failed, pr_data, str(e))
+        return False
 
 
 async def poll_repository(
@@ -176,10 +198,16 @@ async def poll_repository(
                 "status": status
             }
 
-            tasks.append((process_pr_sync, (pr_url, commands, log_context)))
-
-            # Update state to mark as processing
-            state.update_pr_state(repo_key, pr_id, pr_version, commands, status="processing")
+            tasks.append(
+                {
+                    "repo_key": repo_key,
+                    "pr_id": pr_id,
+                    "pr_version": pr_version,
+                    "pr_url": pr_url,
+                    "commands": commands,
+                    "log_context": log_context,
+                }
+            )
 
     except Exception as e:
         get_logger().error(
@@ -235,7 +263,7 @@ async def polling_loop():
             iteration += 1
             get_logger().info(f"Polling iteration #{iteration} started")
 
-            task_queue = deque()
+            task_queue = []
 
             # Poll each repository
             for repo_config in polling_repos:
@@ -261,22 +289,115 @@ async def polling_loop():
             if task_queue:
                 get_logger().info(f"Processing {len(task_queue)} PRs")
 
-                max_parallel_tasks = get_settings().get("bitbucket_server.max_parallel_tasks", 10)
+                max_parallel_tasks = max(1, int(get_settings().get("bitbucket_server.max_parallel_tasks", 10)))
+                review_timeout_seconds = max(
+                    1,
+                    int(get_settings().get("bitbucket_server.polling_review_timeout_seconds", 1800)),
+                )
+                tasks_to_run = task_queue[:max_parallel_tasks]
+                deferred_count = len(task_queue) - len(tasks_to_run)
+                if deferred_count:
+                    get_logger().warning(
+                        f"Deferring {deferred_count} PRs due to max_parallel_tasks={max_parallel_tasks}"
+                    )
+
+                result_queue = multiprocessing.Queue()
                 processes = []
 
-                for i, (func, args) in enumerate(task_queue):
-                    if i >= max_parallel_tasks:
-                        get_logger().warning(
-                            f"Dropping {len(task_queue) - max_parallel_tasks} tasks due to parallel limit"
-                        )
-                        break
+                for task in tasks_to_run:
+                    state.update_pr_state(
+                        task["repo_key"],
+                        task["pr_id"],
+                        task["pr_version"],
+                        task["commands"],
+                        status="processing",
+                    )
 
-                    p = multiprocessing.Process(target=func, args=args)
-                    processes.append(p)
+                    p = multiprocessing.Process(
+                        target=process_pr_sync,
+                        args=(task["pr_url"], task["commands"], task["log_context"], result_queue),
+                    )
+                    processes.append(
+                        {
+                            "process": p,
+                            "task": task,
+                            "started_at": time.monotonic(),
+                            "timed_out": False,
+                        }
+                    )
                     p.start()
 
-                # Don't wait for processes to complete - move to next iteration
-                get_logger().info(f"Started {len(processes)} background processes")
+                get_logger().info(f"Started {len(processes)} review processes")
+
+                while any(process_info["process"].is_alive() for process_info in processes):
+                    now = time.monotonic()
+                    for process_info in processes:
+                        process = process_info["process"]
+                        task = process_info["task"]
+                        if not process.is_alive():
+                            continue
+
+                        elapsed_seconds = now - process_info["started_at"]
+                        if elapsed_seconds <= review_timeout_seconds:
+                            continue
+
+                        process_info["timed_out"] = True
+                        get_logger().error(
+                            f"Review process timed out for {task['repo_key']}#{task['pr_id']} "
+                            f"after {review_timeout_seconds}s"
+                        )
+                        process.terminate()
+                        process.join(timeout=5)
+                        if process.is_alive():
+                            process.kill()
+                            process.join(timeout=1)
+
+                    await asyncio.sleep(1)
+
+                for process_info in processes:
+                    process = process_info["process"]
+                    task = process_info["task"]
+                    process.join(timeout=1)
+                    if process.is_alive():
+                        process_info["timed_out"] = True
+                        process.kill()
+                        process.join(timeout=1)
+
+                    if process.exitcode != 0:
+                        get_logger().error(
+                            f"Review process failed for {task['repo_key']}#{task['pr_id']} "
+                            f"with exit code {process.exitcode}"
+                        )
+
+                results = {}
+                for _ in processes:
+                    try:
+                        result = result_queue.get(timeout=1)
+                    except queue.Empty:
+                        break
+
+                    result_key = (result.get("repo_key"), result.get("pr_id"), result.get("pr_version"))
+                    results[result_key] = bool(result.get("success"))
+
+                for process_info in processes:
+                    process = process_info["process"]
+                    task = process_info["task"]
+                    task_key = (task["repo_key"], task["pr_id"], task["pr_version"])
+                    success = (
+                        not process_info["timed_out"]
+                        and results.get(task_key, False)
+                        and process.exitcode == 0
+                    )
+                    status = "completed" if success else "failed"
+                    state.update_pr_state(
+                        task["repo_key"],
+                        task["pr_id"],
+                        task["pr_version"],
+                        task["commands"],
+                        status=status,
+                    )
+
+                result_queue.close()
 
             else:
                 get_logger().info("No new or updated PRs found")

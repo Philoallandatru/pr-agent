@@ -60,6 +60,17 @@ class TestPollingState(unittest.TestCase):
         # Different version not processed
         self.assertFalse(self.state.is_pr_processed("PROJ/repo", 123, 6))
 
+    def test_is_pr_processed_requires_success_status(self):
+        """Test that in-progress and failed PRs can be retried"""
+        self.state.update_pr_state("PROJ/repo", 123, 5, ["/review"], status="processing")
+        self.assertFalse(self.state.is_pr_processed("PROJ/repo", 123, 5))
+
+        self.state.update_pr_state("PROJ/repo", 123, 5, ["/review"], status="failed")
+        self.assertFalse(self.state.is_pr_processed("PROJ/repo", 123, 5))
+
+        self.state.update_pr_state("PROJ/repo", 123, 5, [], status="filtered")
+        self.assertTrue(self.state.is_pr_processed("PROJ/repo", 123, 5))
+
     def test_is_pr_updated(self):
         """Test checking if PR is updated"""
         # Process at version 5
@@ -112,6 +123,14 @@ class TestPollingState(unittest.TestCase):
 
         # Old entry should be removed
         self.assertIsNone(self.state.get_pr_state("PROJ/repo2", 2))
+
+    def test_cleanup_old_entries_empty_state(self):
+        """Test cleanup when no PR state exists"""
+        self.state.clear_state()
+
+        self.state.cleanup_old_entries(retention_days=30)
+
+        self.assertEqual(self.state.get_all_state(), {})
 
     def test_clear_state_specific_repo(self):
         """Test clearing state for specific repository"""

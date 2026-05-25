@@ -20,6 +20,7 @@ polling_commands = [
 ]
 polling_state_file = "/data/state/polling_state.json"
 max_parallel_tasks = 4
+polling_review_timeout_seconds = 1800
 
 [pr_reviewer]
 require_security_review = true

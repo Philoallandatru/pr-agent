@@ -181,7 +181,8 @@ class PRReviewer:
 
             self.git_provider.remove_initial_comment()
         except Exception as e:
-            get_logger().error(f"Failed to review PR: {e}")
+            get_logger().error(f"Failed to review PR: {e}", artifact={"traceback": traceback.format_exc()})
+            raise
 
     def _should_publish_review_no_suggestions(self, pr_review: str) -> bool:
         return get_settings().pr_reviewer.get('publish_output_no_suggestions', True) or "No major issues detected" not in pr_review

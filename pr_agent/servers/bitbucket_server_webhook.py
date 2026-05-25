@@ -2,6 +2,7 @@ import ast
 import json
 import os
 import re
+import shlex
 from typing import List
 
 import uvicorn
@@ -203,7 +204,7 @@ async def handle_webhook(background_tasks: BackgroundTasks, request: Request):
 async def _run_commands_sequentially(commands: List[str], url: str, log_context: dict):
     get_logger().info(f"Running commands sequentially: {commands}")
     if commands is None:
-        return
+        return True
 
     for command in commands:
         try:
@@ -213,15 +214,22 @@ async def _run_commands_sequentially(commands: List[str], url: str, log_context:
             log_context["api_url"] = url
 
             with get_logger().contextualize(**log_context):
-                await PRAgent().handle_request(url, body)
+                if not await PRAgent().handle_request(url, body):
+                    get_logger().error(f"Command failed: {command}")
+                    return False
         except Exception as e:
             get_logger().error(f"Failed to handle command: {command} , error: {e}")
+            return False
+
+    return True
 
 def _process_command(command: str, url) -> str:
     # don't think we need this
     apply_repo_settings(url)
     # Process the command string
-    split_command = command.split(" ")
+    split_command = shlex.split(command)
+    if not split_command:
+        raise ValueError("Command cannot be empty")
     command = split_command[0]
     args = split_command[1:]
     # do I need this? if yes, shouldn't this be done in PRAgent?

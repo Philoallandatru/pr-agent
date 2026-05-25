@@ -29,6 +29,7 @@ polling_commands = [
 ]
 polling_state_file = "/data/state/polling_state.json"
 max_parallel_tasks = 4
+polling_review_timeout_seconds = 1800
 
 [tokenizer]
 local_cache_dir = "/data/tokenizers"
@@ -41,6 +42,7 @@ Keep secrets and endpoint addresses in environment variables:
 ```env
 BITBUCKET_SERVER__URL=https://bitbucket.example.com
 BITBUCKET_SERVER__BEARER_TOKEN=replace-with-token
+BITBUCKET_SERVER__POLLING_REVIEW_TIMEOUT_SECONDS=1800
 OPENAI__API_BASE=http://host.docker.internal:8000/v1
 OPENAI__KEY=local-api-key
 OPENAI_API_KEY=local-api-key
@@ -103,6 +105,7 @@ export PR_AGENT_CONFIG_FILE="$PWD/.pr_agent.toml"
 export CONFIG__GIT_PROVIDER=bitbucket_server
 export BITBUCKET_SERVER__URL=https://bitbucket.example.com
 export BITBUCKET_SERVER__BEARER_TOKEN=replace-with-token
+export BITBUCKET_SERVER__POLLING_REVIEW_TIMEOUT_SECONDS=1800
 export CONFIG__MODEL=openai/local-review-model
 export OPENAI__API_BASE=http://127.0.0.1:8000/v1
 export OPENAI__KEY=local-api-key
@@ -131,7 +134,15 @@ The state file prevents duplicate reviews:
 }
 ```
 
-The service processes the PR again only when Bitbucket reports a newer `version`.
+The service skips only PR versions whose status is `completed` or `filtered`.
+
+If a PR version is `failed` or left as `processing` after a crash, the same version is eligible for retry on the next polling iteration. This avoids permanently missing a PR because a model request, Bitbucket request, or review process failed once.
+
+`polling_review_timeout_seconds` bounds each review process. If a child process exceeds this timeout, the polling service terminates it, marks the PR version as `failed`, and retries it in a later poll.
+
+`max_parallel_tasks` limits how many PRs are reviewed in one batch. Extra PRs are deferred, not marked as processed, so they are picked up by a later poll.
+
+Bitbucket Server pull request listing is paginated by the underlying client. The `limit` used internally is a page size, not a maximum number of PRs to scan.
 
 ## Filtering
 

@@ -30,6 +30,7 @@ cp .env.example .env
 CONFIG__GIT_PROVIDER=bitbucket_server
 BITBUCKET_SERVER__URL=https://bitbucket.example.com
 BITBUCKET_SERVER__BEARER_TOKEN=replace-with-bitbucket-personal-access-token
+BITBUCKET_SERVER__POLLING_REVIEW_TIMEOUT_SECONDS=1800
 
 CONFIG__MODEL=openai/local-review-model
 CONFIG__FALLBACK_MODELS=[]
@@ -69,6 +70,7 @@ polling_commands = [
 ]
 polling_state_file = "/data/state/polling_state.json"
 max_parallel_tasks = 4
+polling_review_timeout_seconds = 1800
 ```
 
 仓库格式必须是 `PROJECT/repo-slug`，对应 PR URL：
@@ -130,6 +132,7 @@ export PR_AGENT_CONFIG_FILE="$PWD/.pr_agent.toml"
 export CONFIG__GIT_PROVIDER=bitbucket_server
 export BITBUCKET_SERVER__URL=https://bitbucket.example.com
 export BITBUCKET_SERVER__BEARER_TOKEN=replace-with-token
+export BITBUCKET_SERVER__POLLING_REVIEW_TIMEOUT_SECONDS=1800
 export CONFIG__MODEL=openai/local-review-model
 export CONFIG__FALLBACK_MODELS=[]
 export CONFIG__CUSTOM_MODEL_MAX_TOKENS=32768
@@ -151,6 +154,7 @@ $env:PR_AGENT_CONFIG_FILE="$PWD\.pr_agent.toml"
 $env:CONFIG__GIT_PROVIDER="bitbucket_server"
 $env:BITBUCKET_SERVER__URL="https://bitbucket.example.com"
 $env:BITBUCKET_SERVER__BEARER_TOKEN="replace-with-token"
+$env:BITBUCKET_SERVER__POLLING_REVIEW_TIMEOUT_SECONDS="1800"
 $env:CONFIG__MODEL="openai/local-review-model"
 $env:CONFIG__FALLBACK_MODELS="[]"
 $env:CONFIG__CUSTOM_MODEL_MAX_TOKENS="32768"
@@ -182,9 +186,17 @@ $env:PYTHONPATH="."
 
 1. 调用 Bitbucket Server API 列出每个仓库的 open PR
 2. 读取 PR `version`
-3. 和 `polling_state_file` 中记录的 version 比较
-4. 新 PR 或 version 变化时执行 `polling_commands`
-5. 写回状态，避免重复审查
+3. 和 `polling_state_file` 中记录的 version/status 比较
+4. 新 PR、version 变化、或上次状态为 `failed` / `processing` 时执行 `polling_commands`
+5. 成功后写回 `completed`，过滤后写回 `filtered`，失败或超时写回 `failed`
+
+只有 `completed` 和 `filtered` 会被视为已处理。`failed` 和异常遗留的 `processing` 会在下一轮继续重试，避免一次模型/API/进程异常导致 PR 永久漏审。
+
+`max_parallel_tasks` 限制单轮最多同时 review 的 PR 数，超出的任务会延后到下一轮，不会被标记为已处理。
+
+`polling_review_timeout_seconds` 是单个 PR review 子进程的超时时间。超过后服务会终止子进程并标记为 `failed`，后续轮询可重试。
+
+Bitbucket PR 列表由底层客户端自动分页；内部 `limit=50` 是每页大小，不是最多只扫描 50 个 PR。
 
 如果你想让某个 PR 重新触发 review，可以删除状态文件里对应的 PR 条目，或直接清空 state volume。
 
@@ -213,7 +225,7 @@ $env:PYTHONPATH="."
 ## 验证
 
 ```bash
-PYTHONPATH=. ./.venv/bin/pytest tests/unittest/test_polling_state.py tests/unittest/test_bitbucket_provider.py -q
+PYTHONPATH=. ./.venv/bin/pytest tests/unittest/test_polling_state.py tests/unittest/test_bitbucket_provider.py tests/unittest/test_bitbucket_server_polling.py -q
 docker compose config
 ```
 

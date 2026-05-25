@@ -330,6 +330,7 @@ polling_commands = [
 ]
 polling_state_file = ".pr_agent_polling_state.json"
 max_parallel_tasks = 10
+polling_review_timeout_seconds = 1800
 
 [local]
 # LocalGitProvider settings - uncomment to use paths other than default
