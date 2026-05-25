@@ -10,6 +10,7 @@ services:
         required: false
     environment:
       PR_AGENT_CONFIG_FILE: /app/.pr_agent.toml
+      PR_AGENT_LOG_FORMAT: ${PR_AGENT_LOG_FORMAT:-CONSOLE}
       PYTHONPATH: /app
       PYTHONUNBUFFERED: "1"
     volumes:

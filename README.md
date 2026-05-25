@@ -111,6 +111,12 @@ docker compose up -d --build
 docker compose logs -f pr-agent-polling
 ```
 
+默认日志格式是便于本地阅读的 console 输出。如果需要给日志系统采集结构化 JSON，可以设置：
+
+```env
+PR_AGENT_LOG_FORMAT=JSON
+```
+
 启动后日志中应看到：
 
 ```text
@@ -205,6 +211,20 @@ Bitbucket PR 列表由底层客户端自动分页；内部 `limit=50` 是每页�
 `BITBUCKET_SERVER.URL not configured`
 
 确认设置了 `BITBUCKET_SERVER__URL`。
+
+`Failed to list pull requests ... path "rest/api/1.0/projects/..." does not exist at revision`
+
+通常是 `BITBUCKET_SERVER__URL` 配成了 REST API 地址、仓库地址或 PR 地址。这里必须配置 Bitbucket Server 站点根地址，例如：
+
+```env
+BITBUCKET_SERVER__URL=https://bitbucket.example.com
+```
+
+如果你的 Bitbucket 部署在 context path 下，例如 `/bitbucket`，则配置：
+
+```env
+BITBUCKET_SERVER__URL=https://git.example.com/bitbucket
+```
 
 `No repositories configured for polling`
 

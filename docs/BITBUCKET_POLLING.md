@@ -98,6 +98,8 @@ docker compose up -d --build
 docker compose logs -f pr-agent-polling
 ```
 
+The polling service defaults to readable console logs. Set `PR_AGENT_LOG_FORMAT=JSON` only when a log collector expects structured JSON records.
+
 Python directly:
 
 ```bash
@@ -157,6 +159,8 @@ The polling flow uses the same filtering logic as webhooks:
 ## Troubleshooting
 
 `BITBUCKET_SERVER.URL not configured`: set `BITBUCKET_SERVER__URL`.
+
+`Failed to list pull requests ... path "rest/api/1.0/projects/..." does not exist at revision`: set `BITBUCKET_SERVER__URL` to the Bitbucket Server site root only, not a REST API URL, repository URL, or PR URL. Use `https://bitbucket.example.com`, or `https://git.example.com/bitbucket` when Bitbucket is deployed under a context path.
 
 `No repositories configured for polling`: set `bitbucket_server.polling_repositories`.
 

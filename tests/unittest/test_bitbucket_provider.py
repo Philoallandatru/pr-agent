@@ -31,6 +31,22 @@ class TestBitbucketServerProvider:
         assert repo_slug == "my-repo"
         assert pr_number == 1
 
+    def test_normalize_bitbucket_server_root_url(self):
+        url = "https://bitbucket.company-server.url/"
+        assert BitbucketServerProvider._normalize_bitbucket_server_url(url) == "https://bitbucket.company-server.url"
+
+    def test_normalize_bitbucket_server_pr_url_with_context_path(self):
+        url = "https://bitbucket.company-server.url/bitbucket/projects/AAA/repos/my-repo/pull-requests/1"
+        assert BitbucketServerProvider._normalize_bitbucket_server_url(url) == "https://bitbucket.company-server.url/bitbucket"
+
+    def test_normalize_bitbucket_server_rest_api_url(self):
+        url = "https://bitbucket.company-server.url/bitbucket/rest/api/1.0/projects/AAA/repos/my-repo"
+        assert BitbucketServerProvider._normalize_bitbucket_server_url(url) == "https://bitbucket.company-server.url/bitbucket"
+
+    def test_normalize_bitbucket_server_repo_url(self):
+        url = "https://bitbucket.company-server.url/projects/AAA/repos/my-repo"
+        assert BitbucketServerProvider._normalize_bitbucket_server_url(url) == "https://bitbucket.company-server.url"
+
     def mock_get_content_of_file(self, project_key, repository_slug, filename, at=None, markup=None):
         content_map = {
             '9c1cffdd9f276074bfb6fb3b70fbee62d298b058': 'file\nwith\nsome\nlines\nto\nemulate\na\nreal\nfile\n',

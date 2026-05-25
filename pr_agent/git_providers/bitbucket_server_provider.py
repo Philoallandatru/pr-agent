@@ -3,7 +3,7 @@ import re
 
 from packaging.version import parse as parse_version
 from typing import Optional, Tuple
-from urllib.parse import quote_plus, urlparse
+from urllib.parse import quote_plus, urlparse, urlunparse
 
 from atlassian.bitbucket import Bitbucket
 from requests.exceptions import HTTPError
@@ -43,13 +43,21 @@ class BitbucketServerProvider(GitProvider):
         password = get_settings().get("BITBUCKET_SERVER.PASSWORD", None)
         if bitbucket_client: # if Bitbucket client is provided, use it
             self.bitbucket_client = bitbucket_client
-            self.bitbucket_server_url = getattr(bitbucket_client, 'url', None) or self._parse_bitbucket_server(pr_url)
+            self.bitbucket_server_url = self._normalize_bitbucket_server_url(
+                getattr(bitbucket_client, 'url', None) or self._parse_bitbucket_server(pr_url)
+            )
         else:
-            self.bitbucket_server_url = self._parse_bitbucket_server(pr_url) if pr_url else get_settings().get(
+            raw_bitbucket_server_url = self._parse_bitbucket_server(pr_url) if pr_url else get_settings().get(
                 "BITBUCKET_SERVER.URL", ""
             )
+            self.bitbucket_server_url = self._normalize_bitbucket_server_url(raw_bitbucket_server_url)
             if not self.bitbucket_server_url:
                 raise ValueError("Invalid or missing Bitbucket Server URL parsed from PR URL.")
+            if raw_bitbucket_server_url and raw_bitbucket_server_url.rstrip("/") != self.bitbucket_server_url:
+                get_logger().warning(
+                    f"Normalized BITBUCKET_SERVER.URL from '{raw_bitbucket_server_url}' "
+                    f"to '{self.bitbucket_server_url}'. Configure the Bitbucket site root URL only."
+                )
             
             if self.bearer_token:  # if bearer token is provided, use it
                 self.bitbucket_client = Bitbucket(
@@ -483,13 +491,38 @@ class BitbucketServerProvider(GitProvider):
 
     @staticmethod
     def _parse_bitbucket_server(url: str) -> str:
-        # pr url format: f"{bitbucket_server}/projects/{project_name}/repos/{repository_name}/pull-requests/{pr_id}"
+        return BitbucketServerProvider._normalize_bitbucket_server_url(url)
+
+    @staticmethod
+    def _normalize_bitbucket_server_url(url: str) -> str:
+        """
+        Return the Bitbucket Server site root URL.
+
+        The atlassian client appends rest/api/1.0 internally. Supplying a REST API URL,
+        repository URL, or PR URL causes malformed requests such as
+        /projects/KEY/repos/repo/rest/api/1.0/projects/...
+        """
+        url = (url or "").strip()
+        if not url:
+            return ""
+
         parsed_url = urlparse(url)
-        server_path = parsed_url.path.split("/projects/")
-        if len(server_path) > 1:
-            server_path = server_path[0].strip("/")
-            return f"{parsed_url.scheme}://{parsed_url.netloc}/{server_path}".strip("/")
-        return f"{parsed_url.scheme}://{parsed_url.netloc}"
+        if not parsed_url.scheme or not parsed_url.netloc:
+            return url.rstrip("/")
+
+        path_parts = [part for part in parsed_url.path.split("/") if part]
+        lower_parts = [part.lower() for part in path_parts]
+
+        cut_index = len(path_parts)
+        for index, part in enumerate(lower_parts):
+            if part in {"projects", "users", "scm"}:
+                cut_index = min(cut_index, index)
+            if part == "rest" and index + 1 < len(lower_parts) and lower_parts[index + 1] == "api":
+                cut_index = min(cut_index, index)
+
+        site_path = "/".join(path_parts[:cut_index])
+        normalized_path = f"/{site_path}" if site_path else ""
+        return urlunparse((parsed_url.scheme, parsed_url.netloc, normalized_path, "", "", "")).rstrip("/")
 
     @staticmethod
     def _parse_pr_url(pr_url: str) -> Tuple[str, str, int]:

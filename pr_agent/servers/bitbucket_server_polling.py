@@ -7,6 +7,7 @@ and triggers review commands.
 
 import asyncio
 import multiprocessing
+import os
 import queue
 import traceback
 import time
@@ -19,7 +20,15 @@ from pr_agent.notifications import notify_review_completed, notify_review_failed
 from pr_agent.servers.bitbucket_server_webhook import _run_commands_sequentially, should_process_pr_logic
 from pr_agent.storage.polling_state import PollingState
 
-setup_logger(fmt=LoggingFormat.JSON, level=get_settings().get("CONFIG.LOG_LEVEL", "DEBUG"))
+
+def _get_polling_log_format() -> LoggingFormat:
+    log_format = os.getenv("PR_AGENT_LOG_FORMAT", os.getenv("LOG_FORMAT", "CONSOLE")).upper()
+    if log_format == LoggingFormat.JSON.value:
+        return LoggingFormat.JSON
+    return LoggingFormat.CONSOLE
+
+
+setup_logger(fmt=_get_polling_log_format(), level=get_settings().get("CONFIG.LOG_LEVEL", "DEBUG"))
 
 # Initialize structured logger
 structured_logger = StructuredLogger(__name__)
