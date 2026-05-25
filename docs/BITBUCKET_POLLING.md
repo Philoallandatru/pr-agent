@@ -90,7 +90,7 @@ python -m pr_agent.algo.tokenizer_manager download \
   --models openai/local-review-model o200k_base
 ```
 
-For unknown local models, `o200k_base` is used for estimation. Set `custom_model_max_tokens` to the context length your deployed model actually supports.
+For unknown local models, PR-Agent uses `custom_model_max_tokens` as the context limit. The default is `32768`; set it to the context length your deployed model actually supports. For Ollama, use the LiteLLM provider prefix `ollama/<model>` rather than `ollam/<model>`.
 
 ## Running
 

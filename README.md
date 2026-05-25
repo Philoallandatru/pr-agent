@@ -52,6 +52,7 @@ TIKTOKEN_CACHE_DIR=/data/tokenizers
 - `OPENAI__API_BASE` 指向你已经部署好的 OpenAI-compatible 服务。
 - `CONFIG__MODEL` 使用 LiteLLM 的 OpenAI provider 写法，建议保留 `openai/` 前缀。
 - `CONFIG__FALLBACK_MODELS=[]` 避免主模型失败后切到公网模型。
+- `CONFIG__CUSTOM_MODEL_MAX_TOKENS` 是本地/自定义模型的上下文上限；默认已经是 `32768`，可按你的模型实际上下文调大或调小。
 - `TOKENIZER__FALLBACK_TO_DOWNLOAD=false` 表示不允许 tiktoken 访问公网下载 tokenizer。
 - `TOKENIZER__OFFLINE_ESTIMATE_FALLBACK=true` 表示没有本地 tokenizer/cache 时使用本地近似 token 估算，服务仍可启动；如果你希望缺缓存直接失败，可设为 `false`。
 - `TOKENIZER__SKIP_TOKEN_COUNT=true` 表示完全跳过 token 计算，不加载 tiktoken 编码文件，也不会访问外部 tokenizer URL。代价是 PR-Agent 不再提前按上下文窗口裁剪超大 diff，超长 PR 可能由模型服务返回上下文超限错误。
@@ -107,6 +108,8 @@ volumes:
 custom_model_max_tokens = 32768
 model_token_count_estimate_factor = 0.3
 ```
+
+如果使用 Ollama，模型名通常应写成 `ollama/<model>`，例如 `ollama/qwen3:32b`。如果误写成 `ollam/<model>`，token 上限会走本地默认值，但后续 LiteLLM 调用模型时仍可能因为 provider 名错误而失败。
 
 ### 4. Docker Compose 启动
 

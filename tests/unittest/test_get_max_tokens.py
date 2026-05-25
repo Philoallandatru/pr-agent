@@ -77,6 +77,19 @@ class TestGetMaxTokens:
 
         assert get_max_tokens(model) == expected
 
+    @pytest.mark.parametrize("model", ["ollama/Qwen3.6-35B", "openai/local-review-model"])
+    def test_local_model_uses_default_custom_max_tokens(self, monkeypatch, model):
+        fake_settings = type('', (), {
+            'config': type('', (), {
+                'custom_model_max_tokens': 32768,
+                'max_model_tokens': 0
+            })()
+        })()
+
+        monkeypatch.setattr(utils, "get_settings", lambda: fake_settings)
+
+        assert get_max_tokens(model) == 32768
+
     @pytest.mark.parametrize("model", [
         "gpt-5.1-codex",
         "gpt-5.2-codex",
