@@ -17,6 +17,21 @@ from pr_agent.log import get_logger
 class TokenizerManager:
     """Manages local tokenizer caching for offline deployment"""
 
+    MODELSCOPE_TOKENIZER_FILE_PATTERNS = [
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "special_tokens_map.json",
+        "added_tokens.json",
+        "vocab.json",
+        "merges.txt",
+        "*.model",
+        "config.json",
+        "generation_config.json",
+        "chat_template.jinja",
+        "tokenization_*.py",
+        "configuration_*.py",
+    ]
+
     # Common tokenizers to pre-download
     COMMON_TOKENIZERS = [
         "gpt-4",
@@ -37,6 +52,70 @@ class TokenizerManager:
             self.cache_dir = Path(self.cache_dir)
             self.cache_dir.mkdir(parents=True, exist_ok=True)
             os.environ.setdefault("TIKTOKEN_CACHE_DIR", str(self.cache_dir))
+
+    def _get_modelscope_local_dir(self, model_id: str) -> Path:
+        safe_model_id = model_id.replace("/", "__")
+        return self.cache_dir / "modelscope" / safe_model_id
+
+    def download_modelscope_tokenizer(self, model_id: Optional[str] = None) -> Dict[str, bool]:
+        """
+        Download a ModelScope tokenizer snapshot to a stable local directory.
+
+        Args:
+            model_id: ModelScope model id. If None, uses tokenizer.modelscope_model_id.
+
+        Returns:
+            Dictionary mapping model id to success status
+        """
+        if not self.cache_dir:
+            get_logger().error("Local cache directory not configured")
+            return {}
+
+        model_id = model_id or get_settings().get("tokenizer.modelscope_model_id", "")
+        if not model_id:
+            get_logger().error("tokenizer.modelscope_model_id is not configured")
+            return {}
+
+        try:
+            from modelscope import snapshot_download
+        except ImportError:
+            get_logger().error("modelscope not installed. Run: pip install modelscope")
+            return {model_id: False}
+
+        local_dir = self._get_modelscope_local_dir(model_id)
+        local_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            get_logger().info(f"Downloading ModelScope tokenizer for model: {model_id}")
+            try:
+                snapshot_path = Path(
+                    snapshot_download(
+                        model_id,
+                        local_dir=str(local_dir),
+                        allow_patterns=self.MODELSCOPE_TOKENIZER_FILE_PATTERNS,
+                    )
+                )
+            except TypeError:
+                try:
+                    snapshot_path = Path(
+                        snapshot_download(
+                            model_id,
+                            local_dir=str(local_dir),
+                            allow_file_pattern=self.MODELSCOPE_TOKENIZER_FILE_PATTERNS,
+                        )
+                    )
+                except TypeError:
+                    snapshot_path = Path(snapshot_download(model_id, cache_dir=str(self.cache_dir / "modelscope")))
+                    if snapshot_path.resolve() != local_dir.resolve():
+                        shutil.copytree(snapshot_path, local_dir, dirs_exist_ok=True)
+
+            marker_file = local_dir / ".modelscope_tokenizer"
+            marker_file.write_text(model_id)
+            get_logger().info(f"Successfully cached ModelScope tokenizer: {model_id}")
+            return {model_id: True}
+        except Exception as e:
+            get_logger().error(f"Failed to download ModelScope tokenizer for {model_id}: {e}")
+            return {model_id: False}
 
     def download_tokenizers(self, models: Optional[List[str]] = None) -> Dict[str, bool]:
         """
@@ -100,6 +179,10 @@ class TokenizerManager:
         for file in self.cache_dir.glob("*.tiktoken"):
             model_name = file.stem
             cached.append(model_name)
+        for marker_file in self.cache_dir.glob("modelscope/*/.modelscope_tokenizer"):
+            model_id = marker_file.read_text().strip()
+            if model_id:
+                cached.append(f"modelscope:{model_id}")
 
         return cached
 
@@ -114,8 +197,13 @@ class TokenizerManager:
         results = {}
 
         for model in cached_models:
-            cache_file = self.cache_dir / f"{model}.tiktoken"
-            results[model] = cache_file.exists() and cache_file.stat().st_size > 0
+            if model.startswith("modelscope:"):
+                model_id = model.removeprefix("modelscope:")
+                model_dir = self._get_modelscope_local_dir(model_id)
+                results[model] = model_dir.exists() and any(model_dir.iterdir())
+            else:
+                cache_file = self.cache_dir / f"{model}.tiktoken"
+                results[model] = cache_file.exists() and cache_file.stat().st_size > 0
 
         return results
 
@@ -134,10 +222,17 @@ class TokenizerManager:
 
         try:
             if model:
-                cache_file = self.cache_dir / f"{model}.tiktoken"
-                if cache_file.exists():
-                    cache_file.unlink()
-                    get_logger().info(f"Cleared cache for model: {model}")
+                if model.startswith("modelscope:"):
+                    model_id = model.removeprefix("modelscope:")
+                    model_dir = self._get_modelscope_local_dir(model_id)
+                    if model_dir.exists():
+                        shutil.rmtree(model_dir)
+                        get_logger().info(f"Cleared cache for model: {model}")
+                else:
+                    cache_file = self.cache_dir / f"{model}.tiktoken"
+                    if cache_file.exists():
+                        cache_file.unlink()
+                        get_logger().info(f"Cleared cache for model: {model}")
             else:
                 shutil.rmtree(self.cache_dir)
                 self.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -160,19 +255,25 @@ class TokenizerManager:
                 "cache_dir": str(self.cache_dir) if self.cache_dir else None,
                 "exists": False,
                 "cached_models": [],
+                "total_models": 0,
                 "total_size_bytes": 0
             }
 
         cached_models = self.list_cached_tokenizers()
-        total_size = sum(
-            (self.cache_dir / f"{model}.tiktoken").stat().st_size
-            for model in cached_models
-        )
+        total_size = 0
+        for model in cached_models:
+            if model.startswith("modelscope:"):
+                model_id = model.removeprefix("modelscope:")
+                model_dir = self._get_modelscope_local_dir(model_id)
+                total_size += sum(file.stat().st_size for file in model_dir.rglob("*") if file.is_file())
+            else:
+                total_size += (self.cache_dir / f"{model}.tiktoken").stat().st_size
 
         return {
             "cache_dir": str(self.cache_dir),
             "exists": True,
             "cached_models": cached_models,
+            "total_models": len(cached_models),
             "total_size_bytes": total_size,
             "total_size_mb": round(total_size / (1024 * 1024), 2)
         }
@@ -197,16 +298,23 @@ def main():
         "--cache-dir",
         help="Custom cache directory path"
     )
+    parser.add_argument(
+        "--modelscope-model-id",
+        help="ModelScope model id to download, for example Qwen/Qwen3.6-35B-A3B-FP8"
+    )
 
     args = parser.parse_args()
 
     manager = TokenizerManager(cache_dir=args.cache_dir)
 
     if args.command == "download":
-        results = manager.download_tokenizers(models=args.models)
+        if args.modelscope_model_id:
+            results = manager.download_modelscope_tokenizer(model_id=args.modelscope_model_id)
+        else:
+            results = manager.download_tokenizers(models=args.models)
         print("\nDownload Results:")
         for model, success in results.items():
-            status = "✓" if success else "✗"
+            status = "OK" if success else "FAIL"
             print(f"  {status} {model}")
 
     elif args.command == "list":
@@ -219,15 +327,15 @@ def main():
         results = manager.validate_cache()
         print("\nValidation Results:")
         for model, valid in results.items():
-            status = "✓" if valid else "✗"
+            status = "OK" if valid else "FAIL"
             print(f"  {status} {model}")
 
     elif args.command == "clear":
         success = manager.clear_cache()
         if success:
-            print("✓ Cache cleared successfully")
+            print("OK Cache cleared successfully")
         else:
-            print("✗ Failed to clear cache")
+            print("FAIL Failed to clear cache")
 
     elif args.command == "info":
         info = manager.get_cache_info()

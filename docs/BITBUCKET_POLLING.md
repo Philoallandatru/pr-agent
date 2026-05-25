@@ -32,11 +32,13 @@ max_parallel_tasks = 4
 polling_review_timeout_seconds = 1800
 
 [tokenizer]
+backend = "modelscope"
+modelscope_model_id = "Qwen/Qwen3.6-35B-A3B-FP8"
 local_cache_dir = "/data/tokenizers"
 enable_local_cache = true
-fallback_to_download = false
+fallback_to_download = true
 offline_estimate_fallback = true
-skip_token_count = true
+skip_token_count = false
 ```
 
 Keep secrets and endpoint addresses in environment variables:
@@ -48,7 +50,6 @@ BITBUCKET_SERVER__POLLING_REVIEW_TIMEOUT_SECONDS=1800
 OPENAI__API_BASE=http://host.docker.internal:8000/v1
 OPENAI__KEY=local-api-key
 OPENAI_API_KEY=local-api-key
-TIKTOKEN_CACHE_DIR=/data/tokenizers
 ```
 
 `polling_repositories` values must use `PROJECT/repo-slug`, matching Bitbucket URLs like:
@@ -69,25 +70,26 @@ Any service compatible with OpenAI chat completions can be used:
 
 PR-Agent only needs the service to be reachable at `OPENAI__API_BASE` and to expose the model name configured in `CONFIG__MODEL` / `[config].model`.
 
-## Strict offline tokenizer mode
+## ModelScope tokenizer mode
 
 Set:
 
 ```env
+TOKENIZER__BACKEND=modelscope
+TOKENIZER__MODELSCOPE_MODEL_ID=Qwen/Qwen3.6-35B-A3B-FP8
 TOKENIZER__ENABLE_LOCAL_CACHE=true
-TOKENIZER__FALLBACK_TO_DOWNLOAD=false
+TOKENIZER__FALLBACK_TO_DOWNLOAD=true
 TOKENIZER__OFFLINE_ESTIMATE_FALLBACK=true
-TOKENIZER__SKIP_TOKEN_COUNT=true
+TOKENIZER__SKIP_TOKEN_COUNT=false
 TOKENIZER__LOCAL_CACHE_DIR=/data/tokenizers
-TIKTOKEN_CACHE_DIR=/data/tokenizers
 ```
 
-With this setting, PR-Agent will not download tokenizer data from public URLs. `TOKENIZER__SKIP_TOKEN_COUNT=true` bypasses tiktoken entirely and never loads tokenizer encodings; use it when the model service already enforces context limits or when avoiding outbound access is more important than local prompt sizing. If you keep token counting enabled and the tiktoken cache is missing, `TOKENIZER__OFFLINE_ESTIMATE_FALLBACK=true` uses local approximate token counting so the service can still start with local/intranet models. Set it to `false` if you prefer to fail fast on missing cache. For accurate token counts, prewarm cache on a machine that is allowed to access tokenizer assets, then copy the whole directory to the deployment host:
+With this setting, PR-Agent downloads Qwen tokenizer assets from ModelScope into `TOKENIZER__LOCAL_CACHE_DIR/modelscope/Qwen__Qwen3.6-35B-A3B-FP8` and loads them with Transformers for token counting. Install `modelscope` and `transformers` in the runtime environment before using this backend. For strict offline deployments, prewarm the same cache directory on a machine that can reach ModelScope, copy it to the deployment host, then set `TOKENIZER__FALLBACK_TO_DOWNLOAD=false`.
 
 ```bash
 python -m pr_agent.algo.tokenizer_manager download \
   --cache-dir ./tokenizers \
-  --models openai/local-review-model o200k_base
+  --modelscope-model-id Qwen/Qwen3.6-35B-A3B-FP8
 ```
 
 For unknown local models, PR-Agent uses `custom_model_max_tokens` as the context limit. The default is `32768`; set it to the context length your deployed model actually supports. For Ollama, use the LiteLLM provider prefix `ollama/<model>` rather than `ollam/<model>`.
@@ -118,10 +120,11 @@ export OPENAI__KEY=local-api-key
 export OPENAI_API_KEY=local-api-key
 export TOKENIZER__LOCAL_CACHE_DIR="$PWD/tokenizers"
 export TOKENIZER__ENABLE_LOCAL_CACHE=true
-export TOKENIZER__FALLBACK_TO_DOWNLOAD=false
+export TOKENIZER__BACKEND=modelscope
+export TOKENIZER__MODELSCOPE_MODEL_ID=Qwen/Qwen3.6-35B-A3B-FP8
+export TOKENIZER__FALLBACK_TO_DOWNLOAD=true
 export TOKENIZER__OFFLINE_ESTIMATE_FALLBACK=true
-export TOKENIZER__SKIP_TOKEN_COUNT=true
-export TIKTOKEN_CACHE_DIR="$PWD/tokenizers"
+export TOKENIZER__SKIP_TOKEN_COUNT=false
 PYTHONPATH=. python -m pr_agent.servers.bitbucket_server_polling
 ```
 

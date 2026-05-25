@@ -40,8 +40,10 @@ focus_only_on_problems = true
 publish_output_no_suggestions = true
 
 [tokenizer]
+backend = "modelscope"
+modelscope_model_id = "Qwen/Qwen3.6-35B-A3B-FP8"
 local_cache_dir = "/data/tokenizers"
 enable_local_cache = true
-fallback_to_download = false
+fallback_to_download = true
 offline_estimate_fallback = true
-skip_token_count = true
+skip_token_count = false
