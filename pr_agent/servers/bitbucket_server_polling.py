@@ -169,11 +169,6 @@ async def poll_repository(
             pr_version = pr['version']
             pr_title = pr['title']
 
-            # Check if PR is new or updated
-            if state.is_pr_processed(repo_key, pr_id, pr_version):
-                get_logger().debug(f"PR {repo_key}#{pr_id} already processed at version {pr_version}")
-                continue
-
             # Build PR URL
             bitbucket_server_url = BitbucketServerProvider._normalize_bitbucket_server_url(
                 get_settings().get("BITBUCKET_SERVER.URL")
@@ -197,8 +192,16 @@ async def poll_repository(
                 state.update_pr_state(repo_key, pr_id, pr_version, [], status="filtered")
                 continue
 
-            # Determine if new or updated
-            is_new = state.get_pr_state(repo_key, pr_id) is None
+            # Atomically check and mark as processing (prevents race conditions)
+            # This replaces the old is_pr_processed() check to eliminate the time window
+            # between check and mark that could allow duplicate processing
+            if not state.try_mark_processing(repo_key, pr_id, pr_version, commands):
+                get_logger().debug(f"PR {repo_key}#{pr_id} already processed/processing at version {pr_version}")
+                continue
+
+            # Determine if new or updated (for logging only)
+            pr_state = state.get_pr_state(repo_key, pr_id)
+            is_new = pr_state is None or pr_state.get('version') != pr_version
             status = "new" if is_new else "updated"
 
             get_logger().info(
@@ -336,14 +339,8 @@ async def polling_loop():
                         )
                         p.start()
 
-                        # Only mark as processing after successful start
-                        state.update_pr_state(
-                            task["repo_key"],
-                            task["pr_id"],
-                            task["pr_version"],
-                            task["commands"],
-                            status="processing",
-                        )
+                        # Status already set to "processing" by try_mark_processing()
+                        # No need to update again here
 
                         processes.append(
                             {
