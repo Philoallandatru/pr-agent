@@ -227,6 +227,7 @@ max_total_context_chars = 40000
 command_timeout_seconds = 10
 max_command_output_chars = 40000
 fallback_to_direct_review = true
+log_search_behavior = true  # Log detailed search behavior including commands and output previews
 
 [web_platform]
 enable = false  # Enable web management platform
