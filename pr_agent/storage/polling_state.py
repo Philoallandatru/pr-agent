@@ -181,7 +181,7 @@ class PollingState:
             version: PR version
 
         Returns:
-            True if already processed at this version
+            True if already processed at this version (including currently processing)
         """
         state = self.get_pr_state(repo_key, pr_id)
         if not state:
@@ -190,7 +190,8 @@ class PollingState:
         if state.get('version') != version:
             return False
 
-        return state.get('status') in {"completed", "filtered"}
+        # Include "processing" to prevent duplicate processing of same PR
+        return state.get('status') in {"processing", "completed", "filtered"}
 
     def is_pr_updated(self, repo_key: str, pr_id: int, version: int) -> bool:
         """
@@ -258,6 +259,37 @@ class PollingState:
                     f"Cleaned up {total_prs_removed} old PR entries from {len(repos_to_remove)} repos"
                 )
                 self._save_state()
+
+    def cleanup_stale_processing(self):
+        """
+        Reset all PRs stuck in 'processing' state to allow reprocessing.
+
+        This should be called on service startup to handle cases where the
+        service was stopped while PRs were being processed.
+        """
+        self._state = self._load_state()
+        reset_count = 0
+
+        for repo_key, prs in self._state.items():
+            # Collect keys to delete first to avoid RuntimeError during iteration
+            prs_to_reset = []
+            for pr_id, pr_state in prs.items():
+                if pr_state.get('status') == 'processing':
+                    prs_to_reset.append(pr_id)
+
+            # Now delete collected keys
+            for pr_id in prs_to_reset:
+                del prs[pr_id]
+                reset_count += 1
+                get_logger().info(
+                    f"Reset stale processing state for {repo_key}#{pr_id}"
+                )
+
+        if reset_count > 0:
+            get_logger().info(f"Reset {reset_count} stale processing states")
+            self._save_state()
+
+        return reset_count
 
     def get_all_state(self) -> Dict:
         """Get complete state (for debugging/monitoring) - returns deep copy"""

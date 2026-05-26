@@ -274,6 +274,9 @@ async def polling_loop():
 
     provider = BitbucketServerProvider()
 
+    # Reset stale processing states on startup (handles service restart scenarios)
+    state.cleanup_stale_processing()
+
     # Cleanup old state entries on startup
     state.cleanup_old_entries(retention_days=30)
 
