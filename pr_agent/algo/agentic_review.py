@@ -291,11 +291,20 @@ class AgenticReviewLoop:
             get_logger().info(f"Agentic review tool call: {step.command}")
             tool_output = await self.tool_executor.execute(step.command)
             traces.append(AgentTrace(step=step, iteration=iteration, raw_output=raw_output, tool_output=tool_output))
-            context_used += len(tool_output)
-            if context_used >= self.max_total_context_chars:
+
+            # Estimate total context size (tool output + prompt overhead)
+            # Rough estimate: tool_output + history + system/user prompts
+            # Use 4 chars per token as approximation
+            tool_output_chars = len(tool_output)
+            prompt_overhead = len(task_system_prompt) + len(task_user_prompt) + len(raw_output)
+            history_chars = sum(len(t.tool_output) + len(t.raw_output) for t in traces)
+            estimated_total_chars = tool_output_chars + prompt_overhead + history_chars
+
+            context_used += tool_output_chars
+            if estimated_total_chars >= self.max_total_context_chars:
                 get_logger().warning(
-                    f"Agentic review context budget reached: used={context_used}, "
-                    f"limit={self.max_total_context_chars}"
+                    f"Agentic review context budget reached: tool_output={context_used}, "
+                    f"estimated_total={estimated_total_chars}, limit={self.max_total_context_chars}"
                 )
                 break
 
