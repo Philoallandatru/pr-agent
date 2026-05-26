@@ -85,6 +85,57 @@ def get_setting(key: str) -> Any:
         return global_settings.get(key, None)
 
 
+def get_response_language_instruction(response_language: str | None = None) -> str:
+    response_language = response_language or get_settings().config.get("response_language", "zh-CN")
+    language_name_by_locale = {
+        "zh-cn": "Simplified Chinese",
+        "zh": "Simplified Chinese",
+        "zh-hans": "Simplified Chinese",
+        "zh-tw": "Traditional Chinese",
+        "zh-hant": "Traditional Chinese",
+        "en-us": "English",
+        "en": "English",
+    }
+    language_name = language_name_by_locale.get(str(response_language).lower(), str(response_language))
+    if language_name.lower() == "english":
+        return ""
+    return (
+        f"All user-facing natural-language output MUST be written in {language_name} "
+        f"(locale: {response_language}). Keep YAML keys, code, identifiers, file paths, and quoted source text unchanged. "
+        "Translate review explanations, PR descriptions, suggestion text, summaries, and security/test findings."
+    )
+
+
+def apply_response_language_instruction(target_sections: List[str] | None = None) -> None:
+    response_language = get_settings().config.get("response_language", "zh-CN")
+    lang_instruction_text = get_response_language_instruction(response_language)
+    if not lang_instruction_text:
+        return
+
+    get_logger().info(f"User has set the response language to: {response_language}")
+    target_sections_normalized = {section.lower() for section in target_sections} if target_sections else None
+    separator_text = "\n======\n\nIn addition, "
+
+    for key in get_settings():
+        if target_sections_normalized and key.lower() not in target_sections_normalized:
+            continue
+
+        setting = get_settings().get(key)
+        if str(type(setting)) != "<class 'dynaconf.utils.boxing.DynaBox'>":
+            continue
+        if not hasattr(setting, "extra_instructions"):
+            continue
+
+        current_extra_instructions = setting.extra_instructions
+        if lang_instruction_text in str(current_extra_instructions):
+            continue
+
+        if current_extra_instructions:
+            setting.extra_instructions = str(current_extra_instructions) + separator_text + lang_instruction_text
+        else:
+            setting.extra_instructions = lang_instruction_text
+
+
 def emphasize_header(text: str, only_markdown=False, reference_link=None) -> str:
     try:
         # Finding the position of the first occurrence of ": "
@@ -1079,6 +1130,8 @@ def clip_tokens(text: str, max_tokens: int, add_three_dots=True, num_input_token
     """
     if not text:
         return text
+    if max_tokens <= 0:
+        return ""
 
     try:
         if num_input_tokens is None:
@@ -1086,8 +1139,6 @@ def clip_tokens(text: str, max_tokens: int, add_three_dots=True, num_input_token
             num_input_tokens = len(encoder.encode(text))
         if num_input_tokens <= max_tokens:
             return text
-        if max_tokens < 0:
-            return ""
 
         # calculate the number of characters to keep
         num_chars = len(text)

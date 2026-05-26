@@ -12,6 +12,7 @@ from pr_agent.algo.ai_handlers.litellm_ai_handler import LiteLLMAIHandler
 from pr_agent.algo.pr_processing import (add_ai_metadata_to_diff_files,
                                          get_pr_diff,
                                          retry_with_fallback_models)
+from pr_agent.algo.agentic_review import build_agentic_review_prompt_runner, is_agentic_review_enabled
 from pr_agent.algo.token_handler import TokenHandler
 from pr_agent.algo.utils import (ModelType, PRReviewHeader,
                                  convert_to_markdown_v2, github_action_output,
@@ -217,6 +218,29 @@ class PRReviewer:
         environment = Environment(undefined=StrictUndefined)
         system_prompt = environment.from_string(get_settings().pr_review_prompt.system).render(variables)
         user_prompt = environment.from_string(get_settings().pr_review_prompt.user).render(variables)
+
+        if is_agentic_review_enabled("review"):
+            try:
+                runner = build_agentic_review_prompt_runner(
+                    self.ai_handler,
+                    git_provider=getattr(self, "git_provider", None),
+                    pr_url=getattr(self, "pr_url", None),
+                )
+                return await runner.run(
+                    model=model,
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    temperature=get_settings().config.temperature,
+                )
+            except (ValueError, OSError) as e:
+                # Only catch agentic-specific errors (repo resolution, file access)
+                if not get_settings().get("agentic_review.fallback_to_direct_review", True):
+                    raise
+                get_logger().warning(f"Agentic review failed (repo/file error), falling back to direct review: {e}")
+            except Exception as e:
+                # Let critical errors (auth, network, config) propagate
+                get_logger().error(f"Agentic review encountered unexpected error: {e}")
+                raise
 
         response, finish_reason = await self.ai_handler.chat_completion(
             model=model,

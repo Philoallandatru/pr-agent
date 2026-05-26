@@ -4,6 +4,7 @@ import os
 from typing import Union
 
 from pr_agent.agent.pr_agent import PRAgent
+from pr_agent.algo.utils import apply_response_language_instruction
 from pr_agent.config_loader import get_settings
 from pr_agent.git_providers import get_git_provider
 from pr_agent.git_providers.utils import apply_repo_settings
@@ -82,26 +83,9 @@ async def run_action():
 
     # Append the response language in the extra instructions
     try:
-        response_language = get_settings().config.get('response_language', 'en-us')
-        if response_language.lower() != 'en-us':
-            get_logger().info(f'User has set the response language to: {response_language}')
-
-            lang_instruction_text = f"Your response MUST be written in the language corresponding to locale code: '{response_language}'. This is crucial."
-            separator_text = "\n======\n\nIn addition, "
-
-            for key in get_settings():
-                setting = get_settings().get(key)
-                if str(type(setting)) == "<class 'dynaconf.utils.boxing.DynaBox'>":
-                    if key.lower() in ['pr_description', 'pr_code_suggestions', 'pr_reviewer']:
-                        if hasattr(setting, 'extra_instructions'):
-                            extra_instructions = setting.extra_instructions
-
-                            if lang_instruction_text not in str(extra_instructions):
-                                updated_instructions = (
-                                    str(extra_instructions) + separator_text + lang_instruction_text
-                                    if extra_instructions else lang_instruction_text
-                                )
-                                setting.extra_instructions = updated_instructions
+        apply_response_language_instruction(
+            target_sections=["pr_description", "pr_code_suggestions", "pr_reviewer"]
+        )
     except Exception as e:
         get_logger().info(f"github action: failed to apply language-specific instructions: {e}")
     # Handle pull request opened event

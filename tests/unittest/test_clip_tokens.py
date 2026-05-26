@@ -300,11 +300,16 @@ class TestClipTokens:
     def test_clip_original_functionality(self):
         """Test original functionality from the existing test."""
         text = "line1\nline2\nline3\nline4\nline5\nline6"
-        max_tokens = 25
-        result = clip_tokens(text, max_tokens)
-        assert result == text
+        with patch.object(TokenEncoder, 'get_token_encoder') as mock_encoder:
+            mock_tokenizer = MagicMock()
+            mock_tokenizer.encode.return_value = [1] * 17
+            mock_encoder.return_value = mock_tokenizer
 
-        max_tokens = 10
-        result = clip_tokens(text, max_tokens)
-        expected_results = 'line1\nline2\nline3\n\n...(truncated)'
-        assert result == expected_results
+            max_tokens = 25
+            result = clip_tokens(text, max_tokens)
+            assert result == text
+
+            max_tokens = 10
+            result = clip_tokens(text, max_tokens)
+            expected_results = 'line1\nline2\nline3\n\n...(truncated)'
+            assert result == expected_results

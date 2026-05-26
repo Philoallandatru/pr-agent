@@ -65,6 +65,13 @@ class ConfigValidator:
     def _validate_tokenizer(self):
         """Validate tokenizer configuration."""
         tokenizer = self.config.get('tokenizer', {})
+        backend = tokenizer.get('backend', 'modelscope')
+
+        if backend not in {'modelscope', 'tiktoken'}:
+            self.errors.append("tokenizer.backend must be either 'modelscope' or 'tiktoken'")
+
+        if backend == 'modelscope' and not tokenizer.get('modelscope_model_id'):
+            self.errors.append("tokenizer.modelscope_model_id required when tokenizer.backend='modelscope'")
 
         if tokenizer.get('enable_local_cache'):
             cache_dir = tokenizer.get('local_cache_dir')

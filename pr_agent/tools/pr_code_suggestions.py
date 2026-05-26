@@ -11,6 +11,7 @@ from typing import Dict, List
 from jinja2 import Environment, StrictUndefined
 
 from pr_agent.algo import MAX_TOKENS
+from pr_agent.algo.agentic_review import build_agentic_review_prompt_runner, is_agentic_review_enabled
 from pr_agent.algo.ai_handlers.base_ai_handler import BaseAiHandler
 from pr_agent.algo.ai_handlers.litellm_ai_handler import LiteLLMAIHandler
 from pr_agent.algo.git_patch_processing import decouple_and_convert_to_hunks_with_lines_numbers
@@ -390,8 +391,33 @@ class PRCodeSuggestions:
         environment = Environment(undefined=StrictUndefined)
         system_prompt = environment.from_string(self.pr_code_suggestions_prompt_system).render(variables)
         user_prompt = environment.from_string(get_settings().pr_code_suggestions_prompt.user).render(variables)
-        response, finish_reason = await self.ai_handler.chat_completion(
-            model=model, temperature=get_settings().config.temperature, system=system_prompt, user=user_prompt)
+        if is_agentic_review_enabled("improve"):
+            try:
+                runner = build_agentic_review_prompt_runner(
+                    self.ai_handler,
+                    git_provider=getattr(self, "git_provider", None),
+                    pr_url=getattr(self, "pr_url", None),
+                )
+                response = await runner.run(
+                    model=model,
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    temperature=get_settings().config.temperature,
+                )
+            except (ValueError, OSError) as e:
+                # Only catch agentic-specific errors (repo resolution, file access)
+                if not get_settings().get("agentic_review.fallback_to_direct_review", True):
+                    raise
+                get_logger().warning(f"Agentic improve failed (repo/file error), falling back to direct improve: {e}")
+                response, finish_reason = await self.ai_handler.chat_completion(
+                    model=model, temperature=get_settings().config.temperature, system=system_prompt, user=user_prompt)
+            except Exception as e:
+                # Let critical errors (auth, network, config) propagate
+                get_logger().error(f"Agentic improve encountered unexpected error: {e}")
+                raise
+        else:
+            response, finish_reason = await self.ai_handler.chat_completion(
+                model=model, temperature=get_settings().config.temperature, system=system_prompt, user=user_prompt)
         if not get_settings().config.publish_output:
             get_settings().system_prompt = system_prompt
             get_settings().user_prompt = user_prompt

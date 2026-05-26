@@ -52,10 +52,45 @@ class NoOpTokenEncoder:
         return []
 
 
+class TransformersTokenEncoder:
+    """
+    Token encoder adapter for Hugging Face compatible tokenizers.
+
+    ModelScope downloads Qwen tokenizers as regular Transformers tokenizer assets,
+    so PR-Agent only needs the small encode interface used by TokenHandler.
+    """
+
+    def __init__(self, tokenizer):
+        self.tokenizer = tokenizer
+
+    def encode(self, text: str, *args, **kwargs) -> list[int]:
+        if not text:
+            return []
+
+        try:
+            return self.tokenizer.encode(text, add_special_tokens=False)
+        except TypeError:
+            return self.tokenizer.encode(text)
+
+
 class TokenEncoder:
     _encoder_instance = None
     _model = None
     _lock = Lock()  # Create a lock object
+    _MODELSCOPE_TOKENIZER_FILE_PATTERNS = [
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "special_tokens_map.json",
+        "added_tokens.json",
+        "vocab.json",
+        "merges.txt",
+        "*.model",
+        "config.json",
+        "generation_config.json",
+        "chat_template.jinja",
+        "tokenization_*.py",
+        "configuration_*.py",
+    ]
     _KNOWN_ENCODING_URLS = {
         "o200k_base": "https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken",
         "cl100k_base": "https://openaipublic.blob.core.windows.net/encodings/cl100k_base.tiktoken",
@@ -91,6 +126,23 @@ class TokenEncoder:
         return get_settings().get("tokenizer.skip_token_count", False)
 
     @classmethod
+    def _get_tokenizer_backend(cls) -> str:
+        return get_settings().get("tokenizer.backend", "modelscope").lower()
+
+    @classmethod
+    def _get_modelscope_model_id(cls) -> str:
+        return get_settings().get("tokenizer.modelscope_model_id", "Qwen/Qwen3.6-35B-A3B-FP8")
+
+    @classmethod
+    def _get_modelscope_local_dir(cls, model_id: str) -> Path | None:
+        local_cache_dir = get_settings().get("tokenizer.local_cache_dir", "")
+        if not local_cache_dir:
+            return None
+
+        safe_model_id = model_id.replace("/", "__")
+        return Path(local_cache_dir) / "modelscope" / safe_model_id
+
+    @classmethod
     def _get_no_op_encoder(cls, model: str) -> NoOpTokenEncoder:
         get_logger().warning(
             f"Token counting is disabled for {model}. "
@@ -105,6 +157,59 @@ class TokenEncoder:
             "Prewarm the tiktoken cache for more accurate context sizing."
         )
         return ApproximateTokenEncoder()
+
+    @classmethod
+    def _load_from_modelscope(cls):
+        model_id = cls._get_modelscope_model_id()
+        if not model_id:
+            return None
+
+        fallback_to_download = get_settings().get("tokenizer.fallback_to_download", True)
+        local_dir = cls._get_modelscope_local_dir(model_id)
+        tokenizer_path = local_dir if local_dir and local_dir.exists() and any(local_dir.iterdir()) else None
+
+        try:
+            from transformers import AutoTokenizer
+        except ImportError as e:
+            get_logger().warning(
+                "transformers is required for tokenizer.backend='modelscope'. "
+                "Install transformers, or set tokenizer.backend='tiktoken'."
+            )
+            raise RuntimeError("transformers is required for ModelScope tokenizer loading") from e
+
+        if tokenizer_path is None and fallback_to_download:
+            try:
+                from modelscope import snapshot_download
+            except ImportError as e:
+                get_logger().warning(
+                    "modelscope is required to download tokenizer assets. "
+                    "Install modelscope, pre-populate tokenizer.local_cache_dir, or disable downloads."
+                )
+                raise RuntimeError("modelscope is required for ModelScope tokenizer download") from e
+
+            download_kwargs = {}
+            if local_dir:
+                local_dir.mkdir(parents=True, exist_ok=True)
+                download_kwargs["local_dir"] = str(local_dir)
+            download_kwargs["allow_patterns"] = cls._MODELSCOPE_TOKENIZER_FILE_PATTERNS
+
+            get_logger().info(f"Downloading ModelScope tokenizer assets for {model_id}")
+            try:
+                tokenizer_path = Path(snapshot_download(model_id, **download_kwargs))
+            except TypeError:
+                download_kwargs["allow_file_pattern"] = download_kwargs.pop("allow_patterns")
+                tokenizer_path = Path(snapshot_download(model_id, **download_kwargs))
+
+        if tokenizer_path is None:
+            return None
+
+        get_logger().info(f"Loading ModelScope tokenizer from {tokenizer_path}")
+        tokenizer = AutoTokenizer.from_pretrained(
+            str(tokenizer_path),
+            trust_remote_code=True,
+            local_files_only=True,
+        )
+        return TransformersTokenEncoder(tokenizer)
 
     @classmethod
     def _load_from_local_cache(cls, model: str):
@@ -154,8 +259,22 @@ class TokenEncoder:
                         cls._encoder_instance = cls._get_no_op_encoder(cls._model)
                         return cls._encoder_instance
 
-                    # Try loading from local cache first
-                    cls._encoder_instance = cls._load_from_local_cache(cls._model)
+                    backend = cls._get_tokenizer_backend()
+                    if backend not in {"modelscope", "tiktoken"}:
+                        raise ValueError("tokenizer.backend must be either 'modelscope' or 'tiktoken'")
+
+                    if backend == "modelscope":
+                        try:
+                            cls._encoder_instance = cls._load_from_modelscope()
+                        except Exception as e:
+                            if cls._get_offline_estimate_fallback():
+                                get_logger().warning(f"Failed to load ModelScope tokenizer, using approximate count: {e}")
+                                cls._encoder_instance = cls._get_approximate_encoder(cls._model)
+                                return cls._encoder_instance
+                            raise
+                    else:
+                        # Try loading from local tiktoken cache first
+                        cls._encoder_instance = cls._load_from_local_cache(cls._model)
 
                     if cls._encoder_instance is None:
                         # Fall back to standard loading (may download if not cached by tiktoken)

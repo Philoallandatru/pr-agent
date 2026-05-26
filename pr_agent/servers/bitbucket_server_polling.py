@@ -326,27 +326,42 @@ async def polling_loop():
                 processes = []
 
                 for task in tasks_to_run:
-                    state.update_pr_state(
-                        task["repo_key"],
-                        task["pr_id"],
-                        task["pr_version"],
-                        task["commands"],
-                        status="processing",
-                    )
+                    try:
+                        p = multiprocessing.Process(
+                            target=process_pr_sync,
+                            args=(task["pr_url"], task["commands"], task["log_context"], result_queue),
+                        )
+                        p.start()
 
-                    p = multiprocessing.Process(
-                        target=process_pr_sync,
-                        args=(task["pr_url"], task["commands"], task["log_context"], result_queue),
-                    )
-                    processes.append(
-                        {
-                            "process": p,
-                            "task": task,
-                            "started_at": time.monotonic(),
-                            "timed_out": False,
-                        }
-                    )
-                    p.start()
+                        # Only mark as processing after successful start
+                        state.update_pr_state(
+                            task["repo_key"],
+                            task["pr_id"],
+                            task["pr_version"],
+                            task["commands"],
+                            status="processing",
+                        )
+
+                        processes.append(
+                            {
+                                "process": p,
+                                "task": task,
+                                "started_at": time.monotonic(),
+                                "timed_out": False,
+                            }
+                        )
+                    except Exception as e:
+                        get_logger().error(
+                            f"Failed to start process for {task['repo_key']}#{task['pr_id']}: {e}"
+                        )
+                        # Mark as failed immediately if process start fails
+                        state.update_pr_state(
+                            task["repo_key"],
+                            task["pr_id"],
+                            task["pr_version"],
+                            task["commands"],
+                            status="failed",
+                        )
 
                 get_logger().info(f"Started {len(processes)} review processes")
 
@@ -391,23 +406,32 @@ async def polling_loop():
                         )
 
                 results = {}
-                for _ in processes:
+                # Collect all available results without breaking on first timeout
+                results_collected = 0
+                while results_collected < len(processes):
                     try:
                         result = result_queue.get(timeout=1)
+                        result_key = (result.get("repo_key"), result.get("pr_id"), result.get("pr_version"))
+                        results[result_key] = bool(result.get("success"))
+                        results_collected += 1
                     except queue.Empty:
-                        break
-
-                    result_key = (result.get("repo_key"), result.get("pr_id"), result.get("pr_version"))
-                    results[result_key] = bool(result.get("success"))
+                        # Check if all processes have finished
+                        if all(not process_info["process"].is_alive() for process_info in processes):
+                            break
+                        # Otherwise continue waiting for remaining results
+                        continue
 
                 for process_info in processes:
                     process = process_info["process"]
                     task = process_info["task"]
                     task_key = (task["repo_key"], task["pr_id"], task["pr_version"])
+                    # Prioritize actual result over timeout flag
+                    has_result = task_key in results
                     success = (
-                        not process_info["timed_out"]
-                        and results.get(task_key, False)
+                        has_result
+                        and results[task_key]
                         and process.exitcode == 0
+                        and not process_info["timed_out"]
                     )
                     status = "completed" if success else "failed"
                     state.update_pr_state(
@@ -419,6 +443,7 @@ async def polling_loop():
                     )
 
                 result_queue.close()
+                result_queue.join_thread()
 
             else:
                 get_logger().info("No new or updated PRs found")

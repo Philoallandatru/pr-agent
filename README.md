@@ -1,5 +1,10 @@
 # Bitbucket Server PR AI Reviewer
 
+Agentic review is an optional repository-search mode for `/review` and `/improve`. When enabled, PR-Agent keeps the
+existing review/improve prompts and final YAML contracts, but lets the model run a small read-only loop over local
+repository tools before producing the final answer. See `docs/AGENTIC_REVIEW.md` for the full configuration, safety
+model, and operational logs.
+
 这是一个面向 Bitbucket Server / Data Center 的轮询式 PR AI reviewer。它不依赖 webhook，而是定时扫描指定仓库的 open pull requests，发现新 PR 或 PR version 更新后自动执行 `/describe`、`/review`、`/improve`，并把结果发布回 PR。
 
 本仓库的默认部署目标是：使用本地或内网已经部署好的 OpenAI-compatible 模型服务，不依赖 OpenAI 公网，不在运行时从 Hugging Face 或其他公网下载模型资源。
@@ -41,10 +46,11 @@ OPENAI_API_KEY=local-api-key
 
 TOKENIZER__LOCAL_CACHE_DIR=/data/tokenizers
 TOKENIZER__ENABLE_LOCAL_CACHE=true
-TOKENIZER__FALLBACK_TO_DOWNLOAD=false
+TOKENIZER__BACKEND=modelscope
+TOKENIZER__MODELSCOPE_MODEL_ID=Qwen/Qwen3.6-35B-A3B-FP8
+TOKENIZER__FALLBACK_TO_DOWNLOAD=true
 TOKENIZER__OFFLINE_ESTIMATE_FALLBACK=true
-TOKENIZER__SKIP_TOKEN_COUNT=true
-TIKTOKEN_CACHE_DIR=/data/tokenizers
+TOKENIZER__SKIP_TOKEN_COUNT=false
 ```
 
 说明：
@@ -52,9 +58,12 @@ TIKTOKEN_CACHE_DIR=/data/tokenizers
 - `OPENAI__API_BASE` 指向你已经部署好的 OpenAI-compatible 服务。
 - `CONFIG__MODEL` 使用 LiteLLM 的 OpenAI provider 写法，建议保留 `openai/` 前缀。
 - `CONFIG__FALLBACK_MODELS=[]` 避免主模型失败后切到公网模型。
-- `TOKENIZER__FALLBACK_TO_DOWNLOAD=false` 表示不允许 tiktoken 访问公网下载 tokenizer。
+- `CONFIG__CUSTOM_MODEL_MAX_TOKENS` 是本地/自定义模型的上下文上限；默认已经是 `32768`，可按你的模型实际上下文调大或调小。
+- `TOKENIZER__BACKEND=modelscope` 表示使用 ModelScope 下载 tokenizer，并用 Transformers 加载。
+- `TOKENIZER__MODELSCOPE_MODEL_ID=Qwen/Qwen3.6-35B-A3B-FP8` 是默认的 Qwen3.6 tokenizer 模型。
+- `TOKENIZER__FALLBACK_TO_DOWNLOAD=true` 表示本地缓存缺失时允许从 ModelScope 下载 tokenizer。
 - `TOKENIZER__OFFLINE_ESTIMATE_FALLBACK=true` 表示没有本地 tokenizer/cache 时使用本地近似 token 估算，服务仍可启动；如果你希望缺缓存直接失败，可设为 `false`。
-- `TOKENIZER__SKIP_TOKEN_COUNT=true` 表示完全跳过 token 计算，不加载 tiktoken 编码文件，也不会访问外部 tokenizer URL。代价是 PR-Agent 不再提前按上下文窗口裁剪超大 diff，超长 PR 可能由模型服务返回上下文超限错误。
+- `TOKENIZER__SKIP_TOKEN_COUNT=false` 表示启用 token 计算；如果设为 `true`，会完全跳过 token 计算。
 - Docker Desktop 场景下，容器访问宿主机服务通常用 `http://host.docker.internal:端口/v1`。Linux 服务器上建议用模型服务的内网 IP、容器网络名或网关地址。
 
 编辑 `.pr_agent.toml`，配置要轮询的仓库：
@@ -90,7 +99,7 @@ https://bitbucket.example.com/projects/PROJECT/repos/repo-slug/pull-requests/123
 ```bash
 python -m pr_agent.algo.tokenizer_manager download \
   --cache-dir ./tokenizers \
-  --models openai/local-review-model o200k_base
+  --modelscope-model-id Qwen/Qwen3.6-35B-A3B-FP8
 ```
 
 部署时挂载这个目录：
@@ -100,13 +109,15 @@ volumes:
   - ./tokenizers:/data/tokenizers
 ```
 
-如果你的本地模型不是 GPT 系列 tokenizer，PR-Agent 会用 `o200k_base` 做 token 估算。建议在 `.pr_agent.toml` 中设置：
+如果你的本地模型不是 GPT 系列 tokenizer，PR-Agent 默认会用 ModelScope 上的 `Qwen/Qwen3.6-35B-A3B-FP8` tokenizer 做 token 计算。建议在 `.pr_agent.toml` 中设置：
 
 ```toml
 [config]
 custom_model_max_tokens = 32768
 model_token_count_estimate_factor = 0.3
 ```
+
+如果使用 Ollama，模型名通常应写成 `ollama/<model>`，例如 `ollama/qwen3:32b`。如果误写成 `ollam/<model>`，token 上限会走本地默认值，但后续 LiteLLM 调用模型时仍可能因为 provider 名错误而失败。
 
 ### 4. Docker Compose 启动
 
@@ -151,10 +162,11 @@ export OPENAI__KEY=local-api-key
 export OPENAI_API_KEY=local-api-key
 export TOKENIZER__LOCAL_CACHE_DIR="$PWD/tokenizers"
 export TOKENIZER__ENABLE_LOCAL_CACHE=true
-export TOKENIZER__FALLBACK_TO_DOWNLOAD=false
+export TOKENIZER__BACKEND=modelscope
+export TOKENIZER__MODELSCOPE_MODEL_ID=Qwen/Qwen3.6-35B-A3B-FP8
+export TOKENIZER__FALLBACK_TO_DOWNLOAD=true
 export TOKENIZER__OFFLINE_ESTIMATE_FALLBACK=true
-export TOKENIZER__SKIP_TOKEN_COUNT=true
-export TIKTOKEN_CACHE_DIR="$PWD/tokenizers"
+export TOKENIZER__SKIP_TOKEN_COUNT=false
 
 PYTHONPATH=. ./.venv/bin/python -m pr_agent.servers.bitbucket_server_polling
 ```
@@ -175,10 +187,11 @@ $env:OPENAI__KEY="local-api-key"
 $env:OPENAI_API_KEY="local-api-key"
 $env:TOKENIZER__LOCAL_CACHE_DIR="$PWD\tokenizers"
 $env:TOKENIZER__ENABLE_LOCAL_CACHE="true"
-$env:TOKENIZER__FALLBACK_TO_DOWNLOAD="false"
+$env:TOKENIZER__BACKEND="modelscope"
+$env:TOKENIZER__MODELSCOPE_MODEL_ID="Qwen/Qwen3.6-35B-A3B-FP8"
+$env:TOKENIZER__FALLBACK_TO_DOWNLOAD="true"
 $env:TOKENIZER__OFFLINE_ESTIMATE_FALLBACK="true"
-$env:TOKENIZER__SKIP_TOKEN_COUNT="true"
-$env:TIKTOKEN_CACHE_DIR="$PWD\tokenizers"
+$env:TOKENIZER__SKIP_TOKEN_COUNT="false"
 $env:PYTHONPATH="."
 .\.venv\Scripts\python.exe -m pr_agent.servers.bitbucket_server_polling
 ```
@@ -247,7 +260,7 @@ BITBUCKET_SERVER__URL=https://git.example.com/bitbucket
 
 `Tokenizer not available in local cache and download is disabled`
 
-说明当前缓存目录没有可用 tokenizer，且 `TOKENIZER__FALLBACK_TO_DOWNLOAD=false` 已阻止外网下载。默认情况下 `TOKENIZER__OFFLINE_ESTIMATE_FALLBACK=true` 会改用本地近似 token 估算并继续运行；如果你设置为 `false`，则需要复制预热好的 `tokenizers` 目录，或在允许联网的机器上先运行 `python -m pr_agent.algo.tokenizer_manager download --cache-dir ./tokenizers --models openai/local-review-model o200k_base`。
+说明当前缓存目录没有可用 tokenizer，且 `TOKENIZER__FALLBACK_TO_DOWNLOAD=false` 已阻止下载。默认情况下 `TOKENIZER__OFFLINE_ESTIMATE_FALLBACK=true` 会改用本地近似 token 估算并继续运行；如果你设置为 `false`，则需要复制预热好的 `tokenizers` 目录，或在允许联网的机器上先运行 `python -m pr_agent.algo.tokenizer_manager download --cache-dir ./tokenizers --modelscope-model-id Qwen/Qwen3.6-35B-A3B-FP8`。
 
 模型服务连接失败
 

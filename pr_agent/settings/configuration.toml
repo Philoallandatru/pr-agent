@@ -24,12 +24,12 @@ disable_auto_feedback = false
 ai_timeout=120 # 2 minutes
 skip_keys = []
 custom_reasoning_model = false # when true, disables system messages and temperature controls for models that don't support chat-style inputs
-response_language="en-US" # Language locales code for PR responses in ISO 3166 and ISO 639 format (e.g., "en-US", "it-IT", "zh-CN", ...)
+response_language="zh-CN" # Language locale code for PR responses. Defaults to Simplified Chinese. Use "en-US" for English.
 # token limits
 max_description_tokens = 500
 max_commits_tokens = 500
 max_model_tokens = 32000 # Limits the maximum number of tokens that can be used by any model, regardless of the model's default capabilities.
-custom_model_max_tokens=-1 # for models not in the default list
+custom_model_max_tokens=32768 # default context limit for local/custom models not in MAX_TOKENS
 model_token_count_estimate_factor=0.3 # factor to increase the token count estimate, in order to reduce likelihood of model failure due to too many tokens - applicable only when requesting an accurate estimate.
 # patch extension logic
 patch_extension_skip_types =[".md",".txt"]
@@ -200,6 +200,8 @@ num_code_suggestions=4
 extra_instructions = ""
 
 [tokenizer]
+backend = "modelscope"  # "modelscope" uses ModelScope + Transformers tokenizer assets; "tiktoken" keeps OpenAI tiktoken behavior
+modelscope_model_id = "Qwen/Qwen3.6-35B-A3B-FP8"  # Default tokenizer model for Qwen3.6 local deployments
 local_cache_dir = ""  # Custom tokenizer storage path (e.g., "/opt/pr-agent/tokenizers")
 enable_local_cache = false
 fallback_to_download = true  # Set to false for strict offline mode in internal networks
@@ -213,6 +215,18 @@ clone_cache_dir = "/tmp/pr-agent-repos"  # Directory for cloned repositories
 max_related_files = 20  # Maximum number of related files to include
 max_context_tokens = 10000  # Token budget for additional context
 supported_languages = ["python", "javascript", "typescript", "java", "go"]  # Languages to analyze
+
+[agentic_review]
+enabled = false  # Enable agentic repository exploration before final review/improve output
+commands = ["review", "improve"]  # Commands allowed to use agentic repository exploration when enabled
+repo_root = ""  # Optional local repository root for read-only agent tools; empty uses current working directory
+use_repo_context_cache = false  # Opt into repo_context clone/cache resolution when no local checkout is available
+force_repo_context_refresh = false
+max_iterations = 8
+max_total_context_chars = 40000
+command_timeout_seconds = 10
+max_command_output_chars = 40000
+fallback_to_direct_review = true
 
 [web_platform]
 enable = false  # Enable web management platform
