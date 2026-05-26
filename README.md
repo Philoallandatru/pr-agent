@@ -1,15 +1,89 @@
-# Bitbucket Server PR AI Reviewer
+# PR-Agent：AI 驱动的代码审查工具
 
-Agentic review is an optional repository-search mode for `/review` and `/improve`. When enabled, PR-Agent keeps the
-existing review/improve prompts and final YAML contracts, but lets the model run a small read-only loop over local
-repository tools before producing the final answer. See `docs/AGENTIC_REVIEW.md` for the full configuration, safety
-model, and operational logs.
+<div align="center">
 
-这是一个面向 Bitbucket Server / Data Center 的轮询式 PR AI reviewer。它不依赖 webhook，而是定时扫描指定仓库的 open pull requests，发现新 PR 或 PR version 更新后自动执行 `/describe`、`/review`、`/improve`，并把结果发布回 PR。
+**智能、高效、可定制的 Pull Request 自动化审查系统**
 
-本仓库的默认部署目标是：使用本地或内网已经部署好的 OpenAI-compatible 模型服务，不依赖 OpenAI 公网，不在运行时从 Hugging Face 或其他公网下载模型资源。
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.12+-green.svg)](https://www.python.org/)
 
-## 快速开始
+[功能特性](#功能特性) • [快速开始](#快速开始) • [部署方式](#部署方式) • [完整文档](PROJECT_OVERVIEW.md)
+
+</div>
+
+---
+
+## 📖 项目简介
+
+PR-Agent 是一个开源的 AI 驱动代码审查工具，支持多种 Git 平台（GitHub、GitLab、Bitbucket、Azure DevOps、Gitea），能够自动分析 Pull Request 并提供专业的代码审查建议。
+
+**特别优化**：本项目针对 **Bitbucket Server / Data Center** 和**本地模型部署**进行了深度优化，支持完全离线的内网环境。
+
+### 🎯 核心优势
+
+- 🤖 **AI 驱动**：基于大语言模型的智能代码分析
+- 🌐 **多平台支持**：GitHub、GitLab、Bitbucket Server、Azure DevOps、Gitea
+- 🔧 **灵活部署**：CLI、Webhook、Polling、Docker、Kubernetes
+- 🏠 **本地模型**：完整支持 llama.cpp、Ollama、vLLM 等本地服务
+- 🔍 **深度分析**：Agentic Review 可搜索整个代码库
+- 🌍 **离线运行**：无需公网访问，适合内网环境
+
+---
+
+## ✨ 功能特性
+
+### 核心功能
+
+| 命令 | 功能 | 说明 |
+|------|------|------|
+| `/review` | 代码审查 | 安全审计、性能建议、最佳实践检查 |
+| `/improve` | 改进建议 | 提供具体的代码优化建议 |
+| `/describe` | PR 描述生成 | 自动生成 PR 标题和描述 |
+| `/ask` | 问答系统 | 针对 PR 提出问题并获得回答 |
+| `/update_changelog` | 变更日志 | 自动生成结构化的变更日志 |
+| `/add_docs` | 文档建议 | 识别缺少文档的代码 |
+| `/generate_labels` | 标签生成 | 自动为 PR 添加合适的标签 |
+
+### 🚀 高级特性
+
+#### 1. **Agentic Review（智能仓库探索）**
+
+允许 AI 在审查前主动探索代码库，获取更多上下文：
+
+```
+PR 提交 → AI 分析 → 执行只读命令（ls, cat, grep, git log）
+  ↓
+获取上下文 → 生成更准确的审查建议
+```
+
+**安全保障**：只读操作、仓库边界检查、命令白名单、完整审计日志
+
+#### 2. **Fallback 模型支持**
+
+主模型失败时自动尝试备用模型，确保审查始终能完成：
+
+```toml
+[config]
+model = "openai/primary-model"
+fallback_models = ["openai/backup-model"]
+```
+
+#### 3. **Polling 服务（Bitbucket Server）**
+
+为不支持 Webhook 的环境提供轮询模式：
+- 定期轮询指定仓库的 PR
+- 自动检测新 PR 和更新
+- 防止重复审查（原子性状态管理）
+- 支持多进程并发处理
+
+---
+
+## 🚀 快速开始
+
+### 前置要求
+
+- Python ≥ 3.12
+- 本地模型服务（llama.cpp / Ollama / vLLM）或 API 密钥
 
 ### 1. 启动本地 OpenAI-compatible 模型服务
 
@@ -21,83 +95,219 @@ PR-Agent 不负责下载或启动大模型本体。推荐先单独验证模型�
 curl http://127.0.0.1:8000/v1/models
 ```
 
-如果服务需要 API key，记下 key；如果不需要，也填写一个占位值，例如 `local-api-key`。
-
-### 2. 准备配置
+### 2. 安装配置
 
 ```bash
+# 克隆仓库
+git clone https://github.com/Philoallandatru/pr-agent.git
+cd pr-agent
+
+# 安装依赖
+pip install -r requirements.txt
+
+# 配置环境变量
 cp .env.example .env
+# 编辑 .env 文件，配置模型服务和 Bitbucket 信息
 ```
+
+### 3. 配置示例
 
 编辑 `.env`：
 
 ```env
+# Bitbucket Server 配置
 CONFIG__GIT_PROVIDER=bitbucket_server
 BITBUCKET_SERVER__URL=https://bitbucket.example.com
-BITBUCKET_SERVER__BEARER_TOKEN=replace-with-bitbucket-personal-access-token
-BITBUCKET_SERVER__POLLING_REVIEW_TIMEOUT_SECONDS=1800
+BITBUCKET_SERVER__BEARER_TOKEN=your-token-here
 
+# 本地模型配置
 CONFIG__MODEL=openai/local-review-model
-CONFIG__FALLBACK_MODELS=[]
-CONFIG__CUSTOM_MODEL_MAX_TOKENS=32768
-OPENAI__API_BASE=http://host.docker.internal:8000/v1
+OPENAI__API_BASE=http://127.0.0.1:8080/v1
 OPENAI__KEY=local-api-key
-OPENAI_API_KEY=local-api-key
 
-TOKENIZER__LOCAL_CACHE_DIR=/data/tokenizers
-TOKENIZER__ENABLE_LOCAL_CACHE=true
+# Tokenizer 配置
 TOKENIZER__BACKEND=modelscope
 TOKENIZER__MODELSCOPE_MODEL_ID=Qwen/Qwen3.6-35B-A3B-FP8
-TOKENIZER__FALLBACK_TO_DOWNLOAD=true
-TOKENIZER__OFFLINE_ESTIMATE_FALLBACK=true
-TOKENIZER__SKIP_TOKEN_COUNT=false
+TOKENIZER__LOCAL_CACHE_DIR=~/.cache/pr-agent/tokenizers
 ```
 
-说明：
-
-- `OPENAI__API_BASE` 指向你已经部署好的 OpenAI-compatible 服务。
-- `CONFIG__MODEL` 使用 LiteLLM 的 OpenAI provider 写法，建议保留 `openai/` 前缀。
-- `CONFIG__FALLBACK_MODELS=[]` 避免主模型失败后切到公网模型。
-- `CONFIG__CUSTOM_MODEL_MAX_TOKENS` 是本地/自定义模型的上下文上限；默认已经是 `32768`，可按你的模型实际上下文调大或调小。
-- `TOKENIZER__BACKEND=modelscope` 表示使用 ModelScope 下载 tokenizer，并用 Transformers 加载。
-- `TOKENIZER__MODELSCOPE_MODEL_ID=Qwen/Qwen3.6-35B-A3B-FP8` 是默认的 Qwen3.6 tokenizer 模型。
-- `TOKENIZER__FALLBACK_TO_DOWNLOAD=true` 表示本地缓存缺失时允许从 ModelScope 下载 tokenizer。
-- `TOKENIZER__OFFLINE_ESTIMATE_FALLBACK=true` 表示没有本地 tokenizer/cache 时使用本地近似 token 估算，服务仍可启动；如果你希望缺缓存直接失败，可设为 `false`。
-- `TOKENIZER__SKIP_TOKEN_COUNT=false` 表示启用 token 计算；如果设为 `true`，会完全跳过 token 计算。
-- Docker Desktop 场景下，容器访问宿主机服务通常用 `http://host.docker.internal:端口/v1`。Linux 服务器上建议用模型服务的内网 IP、容器网络名或网关地址。
-
-编辑 `.pr_agent.toml`，配置要轮询的仓库：
+编辑 `.pr_agent.toml`：
 
 ```toml
 [bitbucket_server]
 enable_polling = true
 polling_interval_seconds = 300
 polling_repositories = [
-    "PROJ/backend-api",
-    "PROJ/frontend-app",
+    "PROJECT/repo-1",
+    "PROJECT/repo-2",
 ]
 polling_commands = [
     "/describe --pr_description.final_update_message=false",
-    "/review --pr_reviewer.require_security_review=true",
-    "/improve --pr_code_suggestions.commitable_code_suggestions=true",
+    "/review",
+    "/improve",
 ]
-polling_state_file = "/data/state/polling_state.json"
-max_parallel_tasks = 4
+```
+
+### 4. 启动服务
+
+```bash
+# 使用启动脚本（推荐，自动预下载 tokenizer）
+./scripts/start_polling_service.sh
+
+# 或直接启动
+python -m pr_agent.servers.bitbucket_server_polling
+```
+
+---
+
+## 🐳 部署方式
+
+### Docker Compose
+
+```yaml
+version: '3.8'
+services:
+  pr-agent-polling:
+    build: .
+    environment:
+      - CONFIG__MODEL=openai/local-model
+      - OPENAI__API_BASE=http://llama-cpp:8080/v1
+      - BITBUCKET_SERVER__URL=https://bitbucket.example.com
+      - BITBUCKET_SERVER__BEARER_TOKEN=${BITBUCKET_TOKEN}
+    volumes:
+      - ./tokenizers:/root/.cache/pr-agent/tokenizers
+      - ./.pr_agent.toml:/app/.pr_agent.toml
+```
+
+启动：
+
+```bash
+docker compose up -d --build
+```
+
+### Kubernetes
+
+参见 [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md#kubernetes) 获取完整的 Kubernetes 部署配置。
+
+---
+
+## 📚 文档
+
+- **[完整项目文档](PROJECT_OVERVIEW.md)** - 所有功能的详细说明
+- [Agentic Review 指南](docs/AGENTIC_REVIEW.md) - 智能仓库探索功能
+- [Bitbucket Polling 配置](docs/BITBUCKET_POLLING.md) - Polling 服务配置
+- [Tokenizer 预加载指南](docs/TOKENIZER_PRELOAD.md) - 避免多进程锁竞争
+- [Polling 修复报告](docs/POLLING_FIXES.md) - 问题修复记录
+
+---
+
+## ⚙️ 核心配置
+
+### Agentic Review
+
+```toml
+[agentic_review]
+enabled = true
+commands = ["review", "improve"]
+max_iterations = 8
+log_search_behavior = true  # 记录搜索行为
+fallback_to_direct_review = true
+```
+
+### Polling 服务
+
+```toml
+[bitbucket_server]
+polling_interval_seconds = 300
+polling_repositories = ["PROJECT/repo-1"]
+max_parallel_tasks = 10
 polling_review_timeout_seconds = 1800
 ```
 
-仓库格式必须是 `PROJECT/repo-slug`，对应 PR URL：
+### 本地模型
 
-```text
-https://bitbucket.example.com/projects/PROJECT/repos/repo-slug/pull-requests/123
+```toml
+[config]
+model = "openai/local-model"
+fallback_models = ["openai/backup-model"]
+custom_model_max_tokens = 32768
 ```
 
-### 3. 预置 tokenizer/cache
+---
 
-严格内网环境下，运行服务前要确保 `/data/tokenizers` 已经有 tokenizer 缓存。可以在有网络的同构环境中预热一次，再把整个缓存目录复制到部署机器：
+## 🔒 安全性
+
+- **Agentic Review**：只读操作、仓库边界检查、命令白名单
+- **密钥管理**：使用环境变量，不提交到 Git
+- **权限最小化**：只需要 READ 和 WRITE（评论）权限
+
+---
+
+## 🐛 故障排查
+
+### Tokenizer 锁竞争
+
+**症状**：`Still waiting to acquire lock on .../hub/.lock`
+
+**解决方案**：
+```bash
+./scripts/start_polling_service.sh
+```
+
+### PR 重复审查
+
+**症状**：同一个 PR 被多次审查
+
+**解决方案**：已修复（使用原子性状态管理），确保使用最新版本
+
+### 更多问题
+
+参见 [PROJECT_OVERVIEW.md](PROJECT_OVERVIEW.md#故障排查) 获取完整的故障排查指南。
+
+---
+
+## 🤝 贡献
+
+欢迎贡献！请查看 [CONTRIBUTING.md](CONTRIBUTING.md) 了解详情。
+
+### 开发环境
 
 ```bash
-python -m pr_agent.algo.tokenizer_manager download \
+# 安装开发依赖
+pip install -r requirements-dev.txt
+
+# 运行测试
+PYTHONPATH=. pytest tests/unittest -v
+
+# 运行 linter
+ruff check .
+```
+
+---
+
+## 📄 许可证
+
+本项目基于 Apache 2.0 许可证开源。详见 [LICENSE](LICENSE) 文件。
+
+---
+
+## 🙏 致谢
+
+- 基于 [Qodo Merge (PR-Agent)](https://github.com/Codium-ai/pr-agent) 项目
+- 感谢所有贡献者和用户的支持
+
+---
+
+<div align="center">
+
+**⭐ 如果这个项目对你有帮助，请给我们一个 Star！**
+
+[完整文档](PROJECT_OVERVIEW.md) • [Issues](https://github.com/Philoallandatru/pr-agent/issues) • [Discussions](https://github.com/Philoallandatru/pr-agent/discussions)
+
+Made with ❤️ by the PR-Agent Community
+
+</div>
+
   --cache-dir ./tokenizers \
   --modelscope-model-id Qwen/Qwen3.6-35B-A3B-FP8
 ```
