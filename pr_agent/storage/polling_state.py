@@ -260,6 +260,32 @@ class PollingState:
                 )
                 self._save_state()
 
+    def cleanup_stale_processing(self):
+        """
+        Reset all PRs stuck in 'processing' state to allow reprocessing.
+
+        This should be called on service startup to handle cases where the
+        service was stopped while PRs were being processed.
+        """
+        self._state = self._load_state()
+        reset_count = 0
+
+        for repo_key, prs in self._state.items():
+            for pr_id, pr_state in prs.items():
+                if pr_state.get('status') == 'processing':
+                    # Reset to allow reprocessing
+                    del prs[pr_id]
+                    reset_count += 1
+                    get_logger().info(
+                        f"Reset stale processing state for {repo_key}#{pr_id}"
+                    )
+
+        if reset_count > 0:
+            get_logger().info(f"Reset {reset_count} stale processing states")
+            self._save_state()
+
+        return reset_count
+
     def get_all_state(self) -> Dict:
         """Get complete state (for debugging/monitoring) - returns deep copy"""
         self._state = self._load_state()
