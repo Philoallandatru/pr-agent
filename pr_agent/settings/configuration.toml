@@ -202,7 +202,7 @@ extra_instructions = ""
 [tokenizer]
 backend = "modelscope"  # "modelscope" uses ModelScope + Transformers tokenizer assets; "tiktoken" keeps OpenAI tiktoken behavior
 modelscope_model_id = "Qwen/Qwen3.6-35B-A3B-FP8"  # Default tokenizer model for Qwen3.6 local deployments
-local_cache_dir = ""  # Custom tokenizer storage path (e.g., "/opt/pr-agent/tokenizers")
+local_cache_dir = "~/.cache/pr-agent/tokenizers"  # Custom tokenizer storage path (expands ~ to user home)
 enable_local_cache = false
 fallback_to_download = true  # Set to false for strict offline mode in internal networks
 offline_estimate_fallback = true  # Use approximate local token counts when strict offline cache is missing

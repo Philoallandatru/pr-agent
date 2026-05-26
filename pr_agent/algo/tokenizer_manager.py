@@ -49,7 +49,8 @@ class TokenizerManager:
         """
         self.cache_dir = cache_dir or get_settings().get("tokenizer.local_cache_dir", "")
         if self.cache_dir:
-            self.cache_dir = Path(self.cache_dir)
+            # Expand ~ to user home directory
+            self.cache_dir = Path(self.cache_dir).expanduser()
             self.cache_dir.mkdir(parents=True, exist_ok=True)
             os.environ.setdefault("TIKTOKEN_CACHE_DIR", str(self.cache_dir))
 

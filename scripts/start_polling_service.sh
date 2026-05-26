@@ -7,7 +7,7 @@
 set -e
 
 # Configuration
-CACHE_DIR="${TOKENIZER_CACHE_DIR:-/data/tokenizers}"
+CACHE_DIR="${TOKENIZER_CACHE_DIR:-$HOME/.cache/pr-agent/tokenizers}"
 MODELSCOPE_MODEL_ID="${MODELSCOPE_MODEL_ID:-Qwen/Qwen3.6-35B-A3B-FP8}"
 
 echo "=================================================="

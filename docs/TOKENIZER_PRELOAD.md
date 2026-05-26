@@ -41,18 +41,18 @@ MODELSCOPE_MODEL_ID=Qwen/Qwen3.6-35B-A3B-FP8 \
 如果需要手动控制下载过程：
 
 ```bash
-# 下载到配置的缓存目录
+# 下载到配置的缓存目录（默认：~/.cache/pr-agent/tokenizers）
 python -m pr_agent.algo.tokenizer_manager download \
   --modelscope-model-id "Qwen/Qwen3.6-35B-A3B-FP8" \
-  --cache-dir "/data/tokenizers"
+  --cache-dir "$HOME/.cache/pr-agent/tokenizers"
 
 # 验证下载
 python -m pr_agent.algo.tokenizer_manager list \
-  --cache-dir "/data/tokenizers"
+  --cache-dir "$HOME/.cache/pr-agent/tokenizers"
 
 # 查看缓存信息
 python -m pr_agent.algo.tokenizer_manager info \
-  --cache-dir "/data/tokenizers"
+  --cache-dir "$HOME/.cache/pr-agent/tokenizers"
 ```
 
 ### 方法 3：使用 modelscope 直接下载
@@ -63,14 +63,16 @@ python -m pr_agent.algo.tokenizer_manager info \
 python -c "
 from modelscope import snapshot_download
 import os
+from pathlib import Path
 
-cache_dir = '/homessd/.cache/modelscope/hub'
-os.environ['MODELSCOPE_CACHE'] = cache_dir
+cache_dir = Path.home() / '.cache' / 'modelscope' / 'hub'
+cache_dir.mkdir(parents=True, exist_ok=True)
+os.environ['MODELSCOPE_CACHE'] = str(cache_dir)
 
 print(f'Downloading to {cache_dir}...')
 snapshot_download(
     'Qwen/Qwen3.6-35B-A3B-FP8',
-    cache_dir=cache_dir
+    cache_dir=str(cache_dir)
 )
 print('✓ Tokenizer downloaded successfully')
 "
@@ -85,8 +87,8 @@ print('✓ Tokenizer downloaded successfully')
 # ModelScope 模型 ID
 modelscope_model_id = "Qwen/Qwen3.6-35B-A3B-FP8"
 
-# 本地缓存目录
-local_cache_dir = "/data/tokenizers"
+# 本地缓存目录（支持 ~ 扩展为用户目录）
+local_cache_dir = "~/.cache/pr-agent/tokenizers"
 ```
 
 ## Docker 部署
@@ -97,10 +99,10 @@ local_cache_dir = "/data/tokenizers"
 # 安装依赖
 RUN pip install -r requirements.txt
 
-# 预下载 tokenizer
+# 预下载 tokenizer（使用容器内用户目录）
 RUN python -m pr_agent.algo.tokenizer_manager download \
     --modelscope-model-id "Qwen/Qwen3.6-35B-A3B-FP8" \
-    --cache-dir "/data/tokenizers"
+    --cache-dir "/home/appuser/.cache/pr-agent/tokenizers"
 
 # 启动服务
 CMD ["./scripts/start_polling_service.sh"]
@@ -127,17 +129,17 @@ spec:
     - --modelscope-model-id
     - Qwen/Qwen3.6-35B-A3B-FP8
     - --cache-dir
-    - /data/tokenizers
+    - /home/appuser/.cache/pr-agent/tokenizers
     volumeMounts:
     - name: tokenizer-cache
-      mountPath: /data/tokenizers
+      mountPath: /home/appuser/.cache/pr-agent/tokenizers
   containers:
   - name: polling-service
     image: pr-agent:latest
     command: ["./scripts/start_polling_service.sh"]
     volumeMounts:
     - name: tokenizer-cache
-      mountPath: /data/tokenizers
+      mountPath: /home/appuser/.cache/pr-agent/tokenizers
   volumes:
   - name: tokenizer-cache
     persistentVolumeClaim:
@@ -149,13 +151,13 @@ spec:
 ### 查看缓存状态
 
 ```bash
-python -m pr_agent.algo.tokenizer_manager info --cache-dir "/data/tokenizers"
+python -m pr_agent.algo.tokenizer_manager info --cache-dir "$HOME/.cache/pr-agent/tokenizers"
 ```
 
 输出示例：
 ```
 Cache Information:
-  Directory: /data/tokenizers
+  Directory: /home/user/.cache/pr-agent/tokenizers
   Exists: True
   Cached Models: 1
   Total Size: 145.32 MB
@@ -169,18 +171,18 @@ Cache Information:
 ```bash
 # 清理特定模型
 python -m pr_agent.algo.tokenizer_manager clear \
-  --cache-dir "/data/tokenizers" \
+  --cache-dir "$HOME/.cache/pr-agent/tokenizers" \
   --models "modelscope:Qwen/Qwen3.6-35B-A3B-FP8"
 
 # 清理所有缓存
 python -m pr_agent.algo.tokenizer_manager clear \
-  --cache-dir "/data/tokenizers"
+  --cache-dir "$HOME/.cache/pr-agent/tokenizers"
 ```
 
 ### 验证缓存完整性
 
 ```bash
-python -m pr_agent.algo.tokenizer_manager validate --cache-dir "/data/tokenizers"
+python -m pr_agent.algo.tokenizer_manager validate --cache-dir "$HOME/.cache/pr-agent/tokenizers"
 ```
 
 ## 故障排查
@@ -217,10 +219,13 @@ print(get_settings().get('tokenizer.local_cache_dir'))
 
 **解决**：
 ```bash
-# 创建目录并设置权限
-sudo mkdir -p /data/tokenizers
-sudo chown -R $(whoami):$(whoami) /data/tokenizers
-chmod 755 /data/tokenizers
+# 使用用户目录（推荐，无需 sudo）
+mkdir -p ~/.cache/pr-agent/tokenizers
+
+# 或者使用系统目录（需要 sudo）
+sudo mkdir -p /opt/pr-agent/tokenizers
+sudo chown -R $(whoami):$(whoami) /opt/pr-agent/tokenizers
+chmod 755 /opt/pr-agent/tokenizers
 ```
 
 ## 性能优化
@@ -231,7 +236,7 @@ chmod 755 /data/tokenizers
 
 ```toml
 [tokenizer]
-local_cache_dir = "/mnt/shared/tokenizers"
+local_cache_dir = "/mnt/shared/pr-agent/tokenizers"
 ```
 
 ### 预热多个模型
@@ -239,10 +244,11 @@ local_cache_dir = "/mnt/shared/tokenizers"
 如果使用多个模型，可以批量预下载：
 
 ```bash
+CACHE_DIR="$HOME/.cache/pr-agent/tokenizers"
 for model_id in "Qwen/Qwen3.6-35B-A3B-FP8" "gpt-4" "gpt-4o"; do
     python -m pr_agent.algo.tokenizer_manager download \
         --modelscope-model-id "$model_id" \
-        --cache-dir "/data/tokenizers"
+        --cache-dir "$CACHE_DIR"
 done
 ```
 
