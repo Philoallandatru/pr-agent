@@ -232,10 +232,15 @@ class PRReviewer:
                     user_prompt=user_prompt,
                     temperature=get_settings().config.temperature,
                 )
-            except Exception as e:
+            except (ValueError, OSError) as e:
+                # Only catch agentic-specific errors (repo resolution, file access)
                 if not get_settings().get("agentic_review.fallback_to_direct_review", True):
                     raise
-                get_logger().warning(f"Agentic review failed, falling back to direct review: {e}")
+                get_logger().warning(f"Agentic review failed (repo/file error), falling back to direct review: {e}")
+            except Exception as e:
+                # Let critical errors (auth, network, config) propagate
+                get_logger().error(f"Agentic review encountered unexpected error: {e}")
+                raise
 
         response, finish_reason = await self.ai_handler.chat_completion(
             model=model,

@@ -404,12 +404,17 @@ class PRCodeSuggestions:
                     user_prompt=user_prompt,
                     temperature=get_settings().config.temperature,
                 )
-            except Exception as e:
+            except (ValueError, OSError) as e:
+                # Only catch agentic-specific errors (repo resolution, file access)
                 if not get_settings().get("agentic_review.fallback_to_direct_review", True):
                     raise
-                get_logger().warning(f"Agentic improve failed, falling back to direct improve: {e}")
+                get_logger().warning(f"Agentic improve failed (repo/file error), falling back to direct improve: {e}")
                 response, finish_reason = await self.ai_handler.chat_completion(
                     model=model, temperature=get_settings().config.temperature, system=system_prompt, user=user_prompt)
+            except Exception as e:
+                # Let critical errors (auth, network, config) propagate
+                get_logger().error(f"Agentic improve encountered unexpected error: {e}")
+                raise
         else:
             response, finish_reason = await self.ai_handler.chat_completion(
                 model=model, temperature=get_settings().config.temperature, system=system_prompt, user=user_prompt)
