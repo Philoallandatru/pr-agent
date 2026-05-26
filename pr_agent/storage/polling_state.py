@@ -181,7 +181,7 @@ class PollingState:
             version: PR version
 
         Returns:
-            True if already processed at this version
+            True if already processed at this version (including currently processing)
         """
         state = self.get_pr_state(repo_key, pr_id)
         if not state:
@@ -190,7 +190,8 @@ class PollingState:
         if state.get('version') != version:
             return False
 
-        return state.get('status') in {"completed", "filtered"}
+        # Include "processing" to prevent duplicate processing of same PR
+        return state.get('status') in {"processing", "completed", "filtered"}
 
     def is_pr_updated(self, repo_key: str, pr_id: int, version: int) -> bool:
         """
