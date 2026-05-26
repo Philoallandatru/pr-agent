@@ -94,6 +94,31 @@ python -m pr_agent.algo.tokenizer_manager download \
 
 For unknown local models, PR-Agent uses `custom_model_max_tokens` as the context limit. The default is `32768`; set it to the context length your deployed model actually supports. For Ollama, use the LiteLLM provider prefix `ollama/<model>` rather than `ollam/<model>`.
 
+## Agentic repository search
+
+Agentic review is optional. It lets `/review` and `/improve` search the local repository with a read-only allowlist
+before returning the same YAML that the normal flows already parse. See `AGENTIC_REVIEW.md` for the full safety model
+and configuration reference.
+
+For Bitbucket Server polling, enable it only when the polling service can prepare a local checkout through the existing
+repository context cache:
+
+```toml
+[agentic_review]
+enabled = true
+commands = ["review", "improve"]
+use_repo_context_cache = true
+fallback_to_direct_review = true
+
+[repo_context]
+clone_cache_dir = "/data/pr-agent-repos"
+clone_depth = 1
+```
+
+Mount `repo_context.clone_cache_dir` on persistent storage. The agentic tool layer runs from the resolved clone
+directory and allows only `ls`, `cat`, `rg`, `grep`, and limited read-only `git` inspection commands. Clone/cache
+failures are logged and, with fallback enabled, the polling command continues through the direct one-shot review path.
+
 ## Running
 
 Docker Compose:

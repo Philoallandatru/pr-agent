@@ -1,5 +1,10 @@
 # Bitbucket Server PR AI Reviewer
 
+Agentic review is an optional repository-search mode for `/review` and `/improve`. When enabled, PR-Agent keeps the
+existing review/improve prompts and final YAML contracts, but lets the model run a small read-only loop over local
+repository tools before producing the final answer. See `docs/AGENTIC_REVIEW.md` for the full configuration, safety
+model, and operational logs.
+
 这是一个面向 Bitbucket Server / Data Center 的轮询式 PR AI reviewer。它不依赖 webhook，而是定时扫描指定仓库的 open pull requests，发现新 PR 或 PR version 更新后自动执行 `/describe`、`/review`、`/improve`，并把结果发布回 PR。
 
 本仓库的默认部署目标是：使用本地或内网已经部署好的 OpenAI-compatible 模型服务，不依赖 OpenAI 公网，不在运行时从 Hugging Face 或其他公网下载模型资源。

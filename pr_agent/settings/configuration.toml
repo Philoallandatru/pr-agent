@@ -216,6 +216,18 @@ max_related_files = 20  # Maximum number of related files to include
 max_context_tokens = 10000  # Token budget for additional context
 supported_languages = ["python", "javascript", "typescript", "java", "go"]  # Languages to analyze
 
+[agentic_review]
+enabled = false  # Enable agentic repository exploration before final review/improve output
+commands = ["review", "improve"]  # Commands allowed to use agentic repository exploration when enabled
+repo_root = ""  # Optional local repository root for read-only agent tools; empty uses current working directory
+use_repo_context_cache = false  # Opt into repo_context clone/cache resolution when no local checkout is available
+force_repo_context_refresh = false
+max_iterations = 8
+max_total_context_chars = 40000
+command_timeout_seconds = 10
+max_command_output_chars = 40000
+fallback_to_direct_review = true
+
 [web_platform]
 enable = false  # Enable web management platform
 host = "0.0.0.0"
