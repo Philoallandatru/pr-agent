@@ -13,4 +13,3 @@ build/
 docs/.cache/
 .qodo
 poetry.lock
-pr_agent/settings/configuration.toml

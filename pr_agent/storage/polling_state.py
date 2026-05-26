@@ -271,14 +271,19 @@ class PollingState:
         reset_count = 0
 
         for repo_key, prs in self._state.items():
+            # Collect keys to delete first to avoid RuntimeError during iteration
+            prs_to_reset = []
             for pr_id, pr_state in prs.items():
                 if pr_state.get('status') == 'processing':
-                    # Reset to allow reprocessing
-                    del prs[pr_id]
-                    reset_count += 1
-                    get_logger().info(
-                        f"Reset stale processing state for {repo_key}#{pr_id}"
-                    )
+                    prs_to_reset.append(pr_id)
+
+            # Now delete collected keys
+            for pr_id in prs_to_reset:
+                del prs[pr_id]
+                reset_count += 1
+                get_logger().info(
+                    f"Reset stale processing state for {repo_key}#{pr_id}"
+                )
 
         if reset_count > 0:
             get_logger().info(f"Reset {reset_count} stale processing states")
