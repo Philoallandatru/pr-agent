@@ -141,6 +141,7 @@ class AgentLoopResult:
     final_text: str
     stop_reason: str
     traces: list[AgentTrace] = field(default_factory=list)
+    finish_reason: str = "stop"  # AI model finish reason (stop, length, content_filter, etc.)
 
 
 class AgentToolExecutor(Protocol):
@@ -210,14 +211,14 @@ class AgenticReviewLoop:
             f"## Agent history\n{history}\n"
         )
 
-    async def _chat(self, model: str, system: str, user: str, temperature: float) -> str:
-        response, _finish_reason = await self.ai_handler.chat_completion(
+    async def _chat(self, model: str, system: str, user: str, temperature: float) -> tuple[str, str]:
+        response, finish_reason = await self.ai_handler.chat_completion(
             model=model,
             temperature=temperature,
             system=system,
             user=user,
         )
-        return response
+        return response, finish_reason
 
     async def run(
         self,
@@ -233,20 +234,31 @@ class AgenticReviewLoop:
         traces: list[AgentTrace] = []
         context_used = 0
         seen_commands: set[str] = set()
+        last_finish_reason = "stop"
 
         for iteration in range(1, self.max_iterations + 1):
-            raw_output = await self._chat(
+            raw_output, finish_reason = await self._chat(
                 model=model,
                 temperature=temperature,
                 system=self._build_agent_system_prompt(),
                 user=self._build_agent_user_prompt(task_system_prompt, task_user_prompt, traces),
             )
+            last_finish_reason = finish_reason
+
+            # Check for abnormal termination
+            if finish_reason != "stop":
+                get_logger().warning(
+                    f"Agentic review model terminated abnormally: finish_reason={finish_reason}, "
+                    f"iteration={iteration}"
+                )
+
             step = self._parse_step(raw_output)
             if step is None:
                 get_logger().warning("Agentic review loop stopped: unstructured_response")
                 return AgentLoopResult(
                     final_text=raw_output,
                     stop_reason="unstructured_response",
+                    finish_reason=finish_reason,
                     traces=traces + [AgentTrace(
                         step=AgentStep(action=AgentAction.FINAL, content=raw_output),
                         iteration=iteration,
@@ -258,7 +270,12 @@ class AgenticReviewLoop:
             if step.action == AgentAction.FINAL:
                 traces.append(AgentTrace(step=step, iteration=iteration, raw_output=raw_output))
                 get_logger().info(f"Agentic review loop stopped: final, iterations={iteration}")
-                return AgentLoopResult(final_text=step.content, stop_reason="final", traces=traces)
+                return AgentLoopResult(
+                    final_text=step.content,
+                    stop_reason="final",
+                    finish_reason=finish_reason,
+                    traces=traces
+                )
 
             if step.command in seen_commands:
                 get_logger().warning(f"Agentic review duplicate tool call blocked: {step.command}")
@@ -282,27 +299,29 @@ class AgenticReviewLoop:
                 )
                 break
 
-        raw_output = await self._chat(
+        raw_output, finish_reason = await self._chat(
             model=model,
             temperature=temperature,
             system=self._build_agent_system_prompt(),
             user=self._build_agent_user_prompt(task_system_prompt, task_user_prompt, traces, force_final=True),
         )
+        last_finish_reason = finish_reason
         step = self._parse_step(raw_output)
         final_text = step.content if step and step.action == AgentAction.FINAL else raw_output
         traces.append(AgentTrace(
             step=step or AgentStep(action=AgentAction.FINAL, content=raw_output),
-            iteration=len(traces) + 1,
+            iteration=min(len(traces) + 1, self.max_iterations),
             raw_output=raw_output,
             warning="Forced final response after max iterations or context limit.",
         ))
         get_logger().warning(
             f"Agentic review loop stopped: max_iterations_or_context_limit, traces={len(traces)}, "
-            f"context_used={context_used}"
+            f"context_used={context_used}, finish_reason={finish_reason}"
         )
         return AgentLoopResult(
             final_text=final_text,
             stop_reason="max_iterations_or_context_limit",
+            finish_reason=last_finish_reason,
             traces=traces,
         )
 
@@ -460,4 +479,12 @@ class AgenticReviewPromptRunner:
             task_user_prompt=user_prompt,
             temperature=temperature,
         )
+
+        # Log warning if model terminated abnormally
+        if result.finish_reason != "stop":
+            get_logger().warning(
+                f"Agentic review completed with abnormal finish_reason: {result.finish_reason}. "
+                f"Output may be incomplete or truncated. stop_reason={result.stop_reason}"
+            )
+
         return result.final_text
