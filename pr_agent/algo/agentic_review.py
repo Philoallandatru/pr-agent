@@ -156,6 +156,12 @@ class AgenticReviewLoop:
         max_iterations: int = 8,
         max_total_context_chars: int = 40_000,
     ):
+        # Validate configuration
+        if max_iterations <= 0:
+            raise ValueError(f"max_iterations must be positive, got {max_iterations}")
+        if max_total_context_chars <= 0:
+            raise ValueError(f"max_total_context_chars must be positive, got {max_total_context_chars}")
+
         self.ai_handler = ai_handler
         self.tool_executor = tool_executor
         self.max_iterations = max_iterations
@@ -303,11 +309,11 @@ class AgenticReviewLoop:
 
 class ReadOnlyRepoToolExecutor:
     DEFAULT_ALLOW_COMMANDS = [
-        re.compile(r"^ls(?:\s+.*)?$"),
-        re.compile(r"^cat(?:\s+.*)?$"),
-        re.compile(r"^rg(?:\s+.*)?$"),
-        re.compile(r"^grep(?:\s+.*)?$"),
-        re.compile(r"^git\s+(?:status|show|diff|log|rev-parse|ls-files)(?:\s+.*)?$"),
+        re.compile(r"^ls(?:[ \t]+[^\n]*)?$"),
+        re.compile(r"^cat(?:[ \t]+[^\n]*)?$"),
+        re.compile(r"^rg(?:[ \t]+[^\n]*)?$"),
+        re.compile(r"^grep(?:[ \t]+[^\n]*)?$"),
+        re.compile(r"^git[ \t]+(?:status|show|diff|log|rev-parse|ls-files)(?:[ \t]+[^\n]*)?$"),
     ]
 
     def __init__(
@@ -317,6 +323,12 @@ class ReadOnlyRepoToolExecutor:
         command_timeout_seconds: int = 10,
         max_command_output_chars: int = 40_000,
     ):
+        # Validate configuration
+        if command_timeout_seconds <= 0:
+            raise ValueError(f"command_timeout_seconds must be positive, got {command_timeout_seconds}")
+        if max_command_output_chars <= 0:
+            raise ValueError(f"max_command_output_chars must be positive, got {max_command_output_chars}")
+
         self.repo_root = Path(repo_root).resolve()
         self.allow_commands = allow_commands or self.DEFAULT_ALLOW_COMMANDS
         self.command_timeout_seconds = command_timeout_seconds
@@ -331,7 +343,12 @@ class ReadOnlyRepoToolExecutor:
         return text[:self.max_command_output_chars] + "\n...(truncated)"
 
     def _resolve_repo_path(self, path: str = ".") -> Path:
-        resolved = (self.repo_root / path).resolve()
+        # Check for symlinks before resolving to prevent escape via symlink
+        candidate = self.repo_root / path
+        if candidate.is_symlink():
+            raise ValueError(f"symlinks not allowed: {path}")
+
+        resolved = candidate.resolve()
         if resolved != self.repo_root and self.repo_root not in resolved.parents:
             raise ValueError(f"path escapes repository root: {path}")
         return resolved
@@ -361,6 +378,17 @@ class ReadOnlyRepoToolExecutor:
             path = self._resolve_repo_path(argv[1])
             if not path.is_file():
                 return self._format_output(command, 1, stderr=f"file not found: {path}")
+
+            # Check if file is binary by trying to read first few bytes
+            try:
+                with open(path, 'rb') as f:
+                    sample = f.read(8192)
+                    # Check for null bytes (common in binary files)
+                    if b'\x00' in sample:
+                        return self._format_output(command, 0, stdout=f"<binary file: {path.name}>")
+            except Exception:
+                pass
+
             return self._format_output(command, 0, stdout=path.read_text(encoding="utf-8", errors="replace"))
 
         return None
