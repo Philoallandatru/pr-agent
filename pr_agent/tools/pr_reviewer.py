@@ -12,7 +12,7 @@ from pr_agent.algo.ai_handlers.litellm_ai_handler import LiteLLMAIHandler
 from pr_agent.algo.pr_processing import (add_ai_metadata_to_diff_files,
                                          get_pr_diff,
                                          retry_with_fallback_models)
-from pr_agent.algo.agentic_review import build_agentic_review_prompt_runner, is_agentic_review_enabled
+from pr_agent.algo.agentic_review import build_agentic_review_prompt_runner, is_agentic_review_enabled, UnstructuredResponseError
 from pr_agent.algo.token_handler import TokenHandler
 from pr_agent.algo.utils import (ModelType, PRReviewHeader,
                                  convert_to_markdown_v2, github_action_output,
@@ -232,6 +232,11 @@ class PRReviewer:
                     user_prompt=user_prompt,
                     temperature=get_settings().config.temperature,
                 )
+            except UnstructuredResponseError as e:
+                # Model returned unparseable response - this is retryable with fallback models
+                get_logger().warning(f"Agentic review failed (unstructured response): {e}")
+                # Re-raise to trigger fallback model retry in retry_with_fallback_models
+                raise
             except (ValueError, OSError) as e:
                 # Only catch agentic-specific errors (repo resolution, file access)
                 if not get_settings().get("agentic_review.fallback_to_direct_review", True):

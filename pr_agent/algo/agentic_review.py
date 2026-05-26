@@ -20,6 +20,16 @@ from pr_agent.config_loader import get_settings
 from pr_agent.log import get_logger
 
 
+class AgenticReviewError(Exception):
+    """Base exception for agentic review errors"""
+    pass
+
+
+class UnstructuredResponseError(AgenticReviewError):
+    """Raised when model returns unstructured response that cannot be parsed"""
+    pass
+
+
 def is_agentic_review_enabled(command: str) -> bool:
     if not get_settings().get("agentic_review.enabled", False):
         return False
@@ -255,16 +265,10 @@ class AgenticReviewLoop:
             step = self._parse_step(raw_output)
             if step is None:
                 get_logger().warning("Agentic review loop stopped: unstructured_response")
-                return AgentLoopResult(
-                    final_text=raw_output,
-                    stop_reason="unstructured_response",
-                    finish_reason=finish_reason,
-                    traces=traces + [AgentTrace(
-                        step=AgentStep(action=AgentAction.FINAL, content=raw_output),
-                        iteration=iteration,
-                        raw_output=raw_output,
-                        warning="Failed to parse structured action. Returning raw model output.",
-                    )],
+                # Raise exception to trigger fallback model retry
+                raise UnstructuredResponseError(
+                    f"Model returned unstructured response that could not be parsed. "
+                    f"Raw output: {raw_output[:200]}..."
                 )
 
             if step.action == AgentAction.FINAL:
