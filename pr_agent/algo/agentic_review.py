@@ -312,7 +312,11 @@ class AgenticReviewLoop:
 
             # Log tool output summary if enabled
             if get_settings().get("agentic_review.log_search_behavior", True):
-                output_preview = tool_output[:200].replace('\n', ' ') if len(tool_output) > 200 else tool_output.replace('\n', ' ')
+                output_preview = (
+                    tool_output[:200].replace('\n', ' ')
+                    if len(tool_output) > 200
+                    else tool_output.replace('\n', ' ')
+                )
                 get_logger().info(
                     f"Agentic review tool result [{iteration}]: {len(tool_output)} chars, "
                     f"preview: {output_preview}..."

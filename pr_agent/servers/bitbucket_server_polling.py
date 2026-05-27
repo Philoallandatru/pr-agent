@@ -9,8 +9,8 @@ import asyncio
 import multiprocessing
 import os
 import queue
-import traceback
 import time
+import traceback
 
 from pr_agent.config_loader import get_settings
 from pr_agent.git_providers.bitbucket_server_provider import BitbucketServerProvider

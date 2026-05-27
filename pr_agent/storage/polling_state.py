@@ -11,7 +11,7 @@ import os
 import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Dict, Optional, List
+from typing import Dict, List, Optional
 
 from pr_agent.config_loader import get_settings
 from pr_agent.log import get_logger
@@ -112,11 +112,11 @@ class PollingState:
 
                 # Atomic rename
                 os.replace(temp_path, self.state_file)
-            except:
+            except Exception:
                 # Clean up temp file on error
                 try:
                     os.unlink(temp_path)
-                except:
+                except Exception:
                     pass
                 raise
         except Exception as e:
@@ -414,7 +414,7 @@ class PollingState:
                         last_processed = last_processed.replace(tzinfo=timezone.utc)
                     if last_processed > cutoff:
                         recent_count += 1
-                except:
+                except Exception:
                     pass
 
         return {
