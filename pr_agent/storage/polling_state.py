@@ -11,7 +11,7 @@ import os
 import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Dict, Optional, List
+from typing import Dict, List, Optional
 
 from pr_agent.config_loader import get_settings
 from pr_agent.log import get_logger
@@ -112,11 +112,11 @@ class PollingState:
 
                 # Atomic rename
                 os.replace(temp_path, self.state_file)
-            except:
+            except Exception:
                 # Clean up temp file on error
                 try:
                     os.unlink(temp_path)
-                except:
+                except Exception:
                     pass
                 raise
         except Exception as e:
@@ -192,6 +192,83 @@ class PollingState:
 
         # Include "processing" to prevent duplicate processing of same PR
         return state.get('status') in {"processing", "completed", "filtered"}
+
+    def try_mark_processing(self, repo_key: str, pr_id: int, version: int, commands: List[str]) -> bool:
+        """
+        Atomically check if PR is unprocessed and mark it as processing.
+
+        This is a test-and-set operation that prevents race conditions between
+        multiple polling instances. The check and update happen within the same
+        file lock to ensure atomicity.
+
+        Args:
+            repo_key: Repository key
+            pr_id: PR ID
+            version: PR version
+            commands: Commands to run on this PR
+
+        Returns:
+            True if PR was successfully marked as processing (caller should process it)
+            False if PR is already processed/processing (caller should skip it)
+        """
+        try:
+            # Ensure parent directory exists
+            self.state_file.parent.mkdir(parents=True, exist_ok=True)
+
+            # Create file if it doesn't exist
+            if not self.state_file.exists():
+                self.state_file.write_text('{}')
+
+            # Open file for read+write to hold lock during entire operation
+            with open(self.state_file, 'r+') as f:
+                self._acquire_lock(f)
+                try:
+                    # Read current state
+                    f.seek(0)
+                    try:
+                        state = json.load(f)
+                    except json.JSONDecodeError:
+                        state = {}
+
+                    # Check if already processed
+                    pr_state = state.get(repo_key, {}).get(str(pr_id))
+                    if pr_state:
+                        # Check version match
+                        if pr_state.get('version') == version:
+                            # Already processed at this version
+                            if pr_state.get('status') in {"processing", "completed", "filtered"}:
+                                return False
+                        # Different version - allow reprocessing
+
+                    # Not processed yet - mark as processing
+                    if repo_key not in state:
+                        state[repo_key] = {}
+
+                    state[repo_key][str(pr_id)] = {
+                        'version': version,
+                        'last_processed': datetime.now(timezone.utc).isoformat(),
+                        'commands_run': commands,
+                        'status': 'processing'
+                    }
+
+                    # Write updated state back to file
+                    f.seek(0)
+                    f.truncate()
+                    json.dump(state, f, indent=2)
+                    f.flush()
+                    os.fsync(f.fileno())
+
+                    # Update in-memory state
+                    self._state = state
+
+                    return True
+                finally:
+                    self._release_lock(f)
+
+        except Exception as e:
+            get_logger().error(f"Failed to mark PR as processing: {e}")
+            # On error, assume PR might be processed by another instance
+            return False
 
     def is_pr_updated(self, repo_key: str, pr_id: int, version: int) -> bool:
         """
@@ -337,7 +414,7 @@ class PollingState:
                         last_processed = last_processed.replace(tzinfo=timezone.utc)
                     if last_processed > cutoff:
                         recent_count += 1
-                except:
+                except Exception:
                     pass
 
         return {

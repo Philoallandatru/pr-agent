@@ -20,6 +20,16 @@ from pr_agent.config_loader import get_settings
 from pr_agent.log import get_logger
 
 
+class AgenticReviewError(Exception):
+    """Base exception for agentic review errors"""
+    pass
+
+
+class UnstructuredResponseError(AgenticReviewError):
+    """Raised when model returns unstructured response that cannot be parsed"""
+    pass
+
+
 def is_agentic_review_enabled(command: str) -> bool:
     if not get_settings().get("agentic_review.enabled", False):
         return False
@@ -255,21 +265,28 @@ class AgenticReviewLoop:
             step = self._parse_step(raw_output)
             if step is None:
                 get_logger().warning("Agentic review loop stopped: unstructured_response")
-                return AgentLoopResult(
-                    final_text=raw_output,
-                    stop_reason="unstructured_response",
-                    finish_reason=finish_reason,
-                    traces=traces + [AgentTrace(
-                        step=AgentStep(action=AgentAction.FINAL, content=raw_output),
-                        iteration=iteration,
-                        raw_output=raw_output,
-                        warning="Failed to parse structured action. Returning raw model output.",
-                    )],
+                # Raise exception to trigger fallback model retry
+                raise UnstructuredResponseError(
+                    f"Model returned unstructured response that could not be parsed. "
+                    f"Raw output: {raw_output[:200]}..."
                 )
 
             if step.action == AgentAction.FINAL:
                 traces.append(AgentTrace(step=step, iteration=iteration, raw_output=raw_output))
-                get_logger().info(f"Agentic review loop stopped: final, iterations={iteration}")
+
+                # Log completion summary
+                get_logger().info(
+                    f"Agentic review completed: iterations={iteration}, "
+                    f"commands_executed={len(seen_commands)}, "
+                    f"total_context_used={context_used} chars"
+                )
+
+                # Log search summary if enabled
+                if get_settings().get("agentic_review.log_search_behavior", True) and seen_commands:
+                    get_logger().info(
+                        f"Agentic review search summary: {list(seen_commands)}"
+                    )
+
                 return AgentLoopResult(
                     final_text=step.content,
                     stop_reason="final",
@@ -288,8 +305,23 @@ class AgenticReviewLoop:
                 continue
 
             seen_commands.add(step.command)
-            get_logger().info(f"Agentic review tool call: {step.command}")
+            get_logger().info(
+                f"Agentic review tool call [{iteration}/{self.max_iterations}]: {step.command}"
+            )
             tool_output = await self.tool_executor.execute(step.command)
+
+            # Log tool output summary if enabled
+            if get_settings().get("agentic_review.log_search_behavior", True):
+                output_preview = (
+                    tool_output[:200].replace('\n', ' ')
+                    if len(tool_output) > 200
+                    else tool_output.replace('\n', ' ')
+                )
+                get_logger().info(
+                    f"Agentic review tool result [{iteration}]: {len(tool_output)} chars, "
+                    f"preview: {output_preview}..."
+                )
+
             traces.append(AgentTrace(step=step, iteration=iteration, raw_output=raw_output, tool_output=tool_output))
 
             # Estimate total context size (tool output + prompt overhead)
@@ -325,8 +357,15 @@ class AgenticReviewLoop:
         ))
         get_logger().warning(
             f"Agentic review loop stopped: max_iterations_or_context_limit, traces={len(traces)}, "
-            f"context_used={context_used}, finish_reason={finish_reason}"
+            f"commands_executed={len(seen_commands)}, context_used={context_used}, finish_reason={finish_reason}"
         )
+
+        # Log summary of commands executed if enabled
+        if get_settings().get("agentic_review.log_search_behavior", True) and seen_commands:
+            get_logger().info(
+                f"Agentic review search summary: {list(seen_commands)}"
+            )
+
         return AgentLoopResult(
             final_text=final_text,
             stop_reason="max_iterations_or_context_limit",
@@ -424,10 +463,13 @@ class ReadOnlyRepoToolExecutor:
     async def execute(self, command: str) -> str:
         command = (command or "").strip()
         if not command:
+            get_logger().warning("Agentic review: empty command rejected")
             return "Agent command rejected: empty command"
         if not self._is_allowed(command):
-            get_logger().warning(f"Agentic review command blocked: {command}")
+            get_logger().warning(f"Agentic review: command blocked by policy: {command}")
             return f"Agent command blocked by policy: {command}"
+
+        get_logger().info(f"Agentic review: executing command: {command}")
 
         try:
             argv = shlex.split(command)
