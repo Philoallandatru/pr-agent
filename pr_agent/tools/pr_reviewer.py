@@ -27,6 +27,7 @@ from pr_agent.config_loader import get_settings
 from pr_agent.git_providers import get_git_provider_with_context
 from pr_agent.git_providers.git_provider import IncrementalPR, get_main_pr_language
 from pr_agent.log import get_logger
+from pr_agent.monitoring.efficiency_tracker import EfficiencyTracker
 from pr_agent.servers.help import HelpMessage
 from pr_agent.tools.ticket_pr_compliance_check import extract_and_cache_pr_tickets
 
@@ -124,6 +125,21 @@ class PRReviewer:
         return incremental
 
     async def run(self) -> None:
+        # 初始化效率追踪器（如果启用）
+        efficiency_tracker = None
+        if get_settings().get('efficiency_metrics.enabled', True):
+            try:
+                # 使用临时ID，实际应用中应从数据库获取pr_review_id
+                efficiency_tracker = EfficiencyTracker(pr_review_id=0, git_provider=self.git_provider)
+                efficiency_tracker.__enter__()
+                # 设置review类型和模型
+                if is_agentic_review_enabled():
+                    efficiency_tracker.set_review_type('agentic')
+                efficiency_tracker.set_model(get_settings().config.model)
+            except Exception as e:
+                get_logger().warning(f"Failed to initialize EfficiencyTracker: {e}")
+                efficiency_tracker = None
+
         try:
             if not self.git_provider.get_files():
                 get_logger().info(f"PR has no files: {self.pr_url}, skipping review")
@@ -193,6 +209,13 @@ class PRReviewer:
         except Exception as e:
             get_logger().error(f"Failed to review PR: {e}", artifact={"traceback": traceback.format_exc()})
             raise
+        finally:
+            # 完成效率追踪
+            if efficiency_tracker:
+                try:
+                    efficiency_tracker.__exit__(None, None, None)
+                except Exception as e:
+                    get_logger().warning(f"Failed to finalize EfficiencyTracker: {e}")
 
     def _should_publish_review_no_suggestions(self, pr_review: str) -> bool:
         return (
