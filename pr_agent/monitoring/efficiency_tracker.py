@@ -3,19 +3,15 @@ EfficiencyTracker - 追踪PR review的效率指标
 
 使用context manager模式在review过程中自动收集指标
 """
-import time
 import json
-from typing import Dict, List, Optional, Any
+import time
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from pr_agent.config_loader import get_settings
 from pr_agent.log import get_logger
+from pr_agent.monitoring.estimation import calculate_complexity_score, estimate_human_review_time
 from pr_agent.storage.database import Database
-from pr_agent.monitoring.estimation import (
-    calculate_complexity_score,
-    estimate_human_review_time,
-    calculate_api_cost
-)
 
 
 class EfficiencyTracker:

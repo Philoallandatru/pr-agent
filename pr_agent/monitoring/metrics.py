@@ -4,14 +4,14 @@ Monitoring and observability utilities for PR Agent.
 Provides Prometheus metrics, structured logging, and performance tracking.
 """
 
-import time
 import logging
-from typing import Dict, Any, Optional
-from functools import wraps
+import time
 from datetime import datetime
+from functools import wraps
+from typing import Any, Dict, Optional
 
 try:
-    from prometheus_client import Counter, Histogram, Gauge, Info
+    from prometheus_client import Counter, Gauge, Histogram, Info
     PROMETHEUS_AVAILABLE = True
 except ImportError:
     PROMETHEUS_AVAILABLE = False

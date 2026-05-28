@@ -4,14 +4,12 @@ Database Schema and ORM for PR-Agent Web Platform
 SQLite database for storing repositories, PR reviews, prompts, and logs.
 """
 
+import json
 import sqlite3
-from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
-import json
 
 from pr_agent.config_loader import get_settings
-from pr_agent.log import get_logger
 
 
 class Database:

@@ -6,8 +6,8 @@ Provides algorithms for calculating:
 - Human review time estimates
 - API cost calculations
 """
-from typing import Dict, List
 from pathlib import Path
+from typing import Dict, List
 
 
 def calculate_dispersion(file_paths: List[str]) -> float:
