@@ -191,8 +191,95 @@ class EfficiencyTracker:
 
     def _update_prometheus(self):
         """更新Prometheus指标"""
-        # 将在Task 4中实现
-        pass
+        try:
+            from pr_agent.monitoring import metrics
+            if not metrics.PROMETHEUS_AVAILABLE:
+                return
+
+            # 获取repository名称（从git_provider）
+            repo_name = getattr(self.git_provider, 'repo', 'unknown')
+
+            # 更新Counters
+            if self.metrics['issues_high_severity'] > 0:
+                metrics.ai_issues_found_total.labels(
+                    repository=repo_name,
+                    severity='high'
+                ).inc(self.metrics['issues_high_severity'])
+
+            if self.metrics['issues_medium_severity'] > 0:
+                metrics.ai_issues_found_total.labels(
+                    repository=repo_name,
+                    severity='medium'
+                ).inc(self.metrics['issues_medium_severity'])
+
+            if self.metrics['issues_low_severity'] > 0:
+                metrics.ai_issues_found_total.labels(
+                    repository=repo_name,
+                    severity='low'
+                ).inc(self.metrics['issues_low_severity'])
+
+            if self.metrics['code_suggestions_count'] > 0:
+                metrics.ai_code_suggestions_total.labels(
+                    repository=repo_name
+                ).inc(self.metrics['code_suggestions_count'])
+
+            if self.metrics['api_calls_count'] > 0:
+                model = self.metrics['model_used'] or 'unknown'
+                metrics.ai_api_calls_total.labels(
+                    model=model,
+                    repository=repo_name
+                ).inc(self.metrics['api_calls_count'])
+
+            if self.metrics['tokens_prompt'] > 0:
+                model = self.metrics['model_used'] or 'unknown'
+                metrics.ai_tokens_used_total.labels(
+                    model=model,
+                    token_type='prompt'
+                ).inc(self.metrics['tokens_prompt'])
+
+            if self.metrics['tokens_completion'] > 0:
+                model = self.metrics['model_used'] or 'unknown'
+                metrics.ai_tokens_used_total.labels(
+                    model=model,
+                    token_type='completion'
+                ).inc(self.metrics['tokens_completion'])
+
+            if self.metrics['api_cost_usd'] > 0:
+                model = self.metrics['model_used'] or 'unknown'
+                metrics.ai_cost_usd_total.labels(
+                    model=model,
+                    repository=repo_name
+                ).inc(self.metrics['api_cost_usd'])
+
+            # 更新Histograms
+            metrics.ai_review_processing_time_seconds.labels(
+                repository=repo_name,
+                review_type=self.metrics['review_type']
+            ).observe(self.metrics['review_processing_time_seconds'])
+
+            if self.metrics['pr_size_lines'] > 0:
+                metrics.ai_pr_size_lines.labels(
+                    repository=repo_name
+                ).observe(self.metrics['pr_size_lines'])
+
+            if self.metrics['pr_complexity_score'] > 0:
+                metrics.ai_pr_complexity_score.labels(
+                    repository=repo_name
+                ).observe(self.metrics['pr_complexity_score'])
+
+            if self.metrics.get('estimated_human_time_saved_minutes'):
+                metrics.ai_time_saved_minutes.labels(
+                    repository=repo_name
+                ).observe(self.metrics['estimated_human_time_saved_minutes'])
+
+            # 更新Gauges
+            if self.metrics['agentic_search_iterations'] > 0:
+                metrics.ai_agentic_iterations.labels(
+                    repository=repo_name
+                ).set(self.metrics['agentic_search_iterations'])
+
+        except Exception as e:
+            self.logger.error(f"Failed to update Prometheus metrics: {e}")
 
     def track_api_call(self, tokens_prompt: int, tokens_completion: int, cost: float):
         """追踪单次API调用"""
