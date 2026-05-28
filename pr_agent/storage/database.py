@@ -98,6 +98,45 @@ class Database:
             )
         """)
 
+        # Efficiency metrics table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS efficiency_metrics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                pr_review_id INTEGER NOT NULL,
+
+                issues_found_total INTEGER DEFAULT 0,
+                issues_high_severity INTEGER DEFAULT 0,
+                issues_medium_severity INTEGER DEFAULT 0,
+                issues_low_severity INTEGER DEFAULT 0,
+                security_issues_found INTEGER DEFAULT 0,
+                code_suggestions_count INTEGER DEFAULT 0,
+
+                estimated_review_effort INTEGER,
+                review_response_time_seconds REAL,
+                review_processing_time_seconds REAL NOT NULL,
+                estimated_human_time_saved_minutes REAL,
+
+                tokens_prompt INTEGER DEFAULT 0,
+                tokens_completion INTEGER DEFAULT 0,
+                tokens_total INTEGER DEFAULT 0,
+                api_calls_count INTEGER DEFAULT 0,
+                api_cost_usd REAL,
+
+                pr_size_lines INTEGER DEFAULT 0,
+                pr_files_count INTEGER DEFAULT 0,
+                pr_languages TEXT,
+                pr_complexity_score REAL,
+
+                model_used TEXT,
+                review_type TEXT,
+                agentic_search_iterations INTEGER DEFAULT 0,
+
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+                FOREIGN KEY(pr_review_id) REFERENCES pr_reviews(id) ON DELETE CASCADE
+            )
+        """)
+
         # Create indexes
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_pr_reviews_repo
@@ -110,6 +149,14 @@ class Database:
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_system_logs_timestamp
             ON system_logs(timestamp)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_efficiency_metrics_pr_review
+            ON efficiency_metrics(pr_review_id)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_efficiency_metrics_created_at
+            ON efficiency_metrics(created_at)
         """)
 
         self.conn.commit()
@@ -389,6 +436,55 @@ class Database:
         cursor = self.conn.cursor()
         cursor.execute("DELETE FROM prompt_templates WHERE id = ?", (template_id,))
         self.conn.commit()
+
+    # Efficiency metrics operations
+    def add_efficiency_metrics(
+        self,
+        pr_review_id: int,
+        metrics: Dict
+    ) -> int:
+        """Add efficiency metrics record"""
+        cursor = self.conn.cursor()
+
+        # 构建字段和值列表
+        fields = ['pr_review_id']
+        values = [pr_review_id]
+        placeholders = ['?']
+
+        for key, value in metrics.items():
+            fields.append(key)
+            values.append(value)
+            placeholders.append('?')
+
+        query = f"""
+            INSERT INTO efficiency_metrics ({', '.join(fields)})
+            VALUES ({', '.join(placeholders)})
+        """
+
+        cursor.execute(query, values)
+        self.conn.commit()
+        return cursor.lastrowid
+
+    def get_efficiency_metrics(
+        self,
+        pr_review_id: Optional[int] = None,
+        limit: int = 100,
+        offset: int = 0
+    ) -> List[Dict]:
+        """Get efficiency metrics with filters"""
+        query = "SELECT * FROM efficiency_metrics WHERE 1=1"
+        params = []
+
+        if pr_review_id is not None:
+            query += " AND pr_review_id = ?"
+            params.append(pr_review_id)
+
+        query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+
+        cursor = self.conn.cursor()
+        cursor.execute(query, params)
+        return [dict(row) for row in cursor.fetchall()]
 
     # Statistics
     def get_statistics(self) -> Dict:
