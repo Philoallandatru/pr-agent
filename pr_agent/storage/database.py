@@ -330,6 +330,28 @@ class Database:
         cursor.execute(query, params)
         return [dict(row) for row in cursor.fetchall()]
 
+    def is_pr_reviewed(self, pr_url: str) -> bool:
+        """Check if a PR has already been reviewed"""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT COUNT(*) as count FROM pr_reviews
+            WHERE pr_url = ? AND status = 'completed'
+        """, (pr_url,))
+        result = cursor.fetchone()
+        return result['count'] > 0
+
+    def get_pr_review_by_url(self, pr_url: str) -> Optional[Dict]:
+        """Get PR review by URL"""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT * FROM pr_reviews
+            WHERE pr_url = ?
+            ORDER BY created_at DESC
+            LIMIT 1
+        """, (pr_url,))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
     # System logs operations
     def add_log(self, level: str, message: str, details: Optional[Dict] = None):
         """Add system log entry"""

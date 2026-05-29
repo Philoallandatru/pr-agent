@@ -29,6 +29,7 @@ from pr_agent.git_providers.git_provider import IncrementalPR, get_main_pr_langu
 from pr_agent.log import get_logger
 from pr_agent.monitoring.efficiency_tracker import EfficiencyTracker
 from pr_agent.servers.help import HelpMessage
+from pr_agent.storage.database import Database
 from pr_agent.tools.ticket_pr_compliance_check import extract_and_cache_pr_tickets
 
 
@@ -125,6 +126,18 @@ class PRReviewer:
         return incremental
 
     async def run(self) -> None:
+        # 检查是否已经review过此PR
+        if get_settings().get('pr_reviewer.skip_reviewed_prs', True):
+            try:
+                db = Database()
+                if db.is_pr_reviewed(self.pr_url):
+                    get_logger().info(f"PR已经被review过，跳过: {self.pr_url}")
+                    db.close()
+                    return None
+                db.close()
+            except Exception as e:
+                get_logger().warning(f"检查PR review状态失败: {e}")
+
         # 初始化效率追踪器（如果启用）
         efficiency_tracker = None
         if get_settings().get('efficiency_metrics.enabled', True):
@@ -206,6 +219,30 @@ class PRReviewer:
                 self.git_provider.publish_comment(pr_review)
 
             self.git_provider.remove_initial_comment()
+
+            # 记录PR review完成状态到数据库
+            try:
+                db = Database()
+                # 检查是否已存在记录
+                existing = db.get_pr_review_by_url(self.pr_url)
+                if existing:
+                    # 更新现有记录
+                    db.update_pr_review(existing['id'], status='completed')
+                else:
+                    # 创建新记录
+                    db.add_pr_review(
+                        repository_id=0,  # 临时使用0，实际应该从配置获取
+                        pr_id=0,  # 临时使用0，实际应该从PR URL解析
+                        pr_title=getattr(self.git_provider, 'pr_title', 'Unknown'),
+                        pr_author=getattr(self.git_provider, 'pr_author', 'Unknown'),
+                        pr_url=self.pr_url,
+                        commands_run=['review'],
+                        status='completed'
+                    )
+                db.close()
+                get_logger().info(f"PR review状态已记录: {self.pr_url}")
+            except Exception as e:
+                get_logger().warning(f"记录PR review状态失败: {e}")
         except Exception as e:
             get_logger().error(f"Failed to review PR: {e}", artifact={"traceback": traceback.format_exc()})
             raise
