@@ -79,16 +79,34 @@ def diagnose_polling_state():
 
         # 尝试标记为processing
         result = state.try_mark_processing(test_repo, test_pr_id, test_version, ["review"])
-        print(f"   - try_mark_processing 返回: {result}")
+        print(f"   - try_mark_processing (v1) 返回: {result}")
 
         if result:
             # 更新为completed
             state.update_pr_state(test_repo, test_pr_id, test_version, ["review"], status="completed")
-            print(f"   - 已更新状态为completed")
+            print(f"   - 已更新状态为completed (v1)")
 
-            # 再次尝试
+            # 再次尝试相同版本
             result2 = state.try_mark_processing(test_repo, test_pr_id, test_version, ["review"])
-            print(f"   - 再次try_mark_processing 返回: {result2} (应该是False)")
+            print(f"   - 再次try_mark_processing (v1) 返回: {result2} (应该是False)")
+
+            # 测试不同版本（模拟PR更新）
+            test_version_2 = 2
+            result3 = state.try_mark_processing(test_repo, test_pr_id, test_version_2, ["review"])
+            review_mode = get_settings().get("bitbucket_server.polling_review_mode", "on_update")
+            print(f"   - try_mark_processing (v2) 返回: {result3}")
+            print(f"   - 当前review模式: {review_mode}")
+
+            if review_mode == "once":
+                if not result3:
+                    print(f"   ✅ 'once'模式工作正常 - PR更新后不会重新review")
+                else:
+                    print(f"   ❌ 'once'模式失败 - PR更新后仍然会review")
+            else:
+                if result3:
+                    print(f"   ✅ 'on_update'模式工作正常 - PR更新后会重新review")
+                else:
+                    print(f"   ❌ 'on_update'模式失败 - PR更新后不会review")
 
             if not result2:
                 print("   ✅ 去重机制工作正常！")

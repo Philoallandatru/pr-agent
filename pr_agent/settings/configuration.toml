@@ -332,6 +332,8 @@ avoid_full_files = false
 url = ""
 # Polling state file - use absolute path to ensure consistency
 polling_state_file = "C:/Users/Administrator/Documents/Code/pr-agent/.pr_agent_polling_state.json"
+# Review mode: "once" = review each PR only once (ignore updates), "on_update" = review on every PR update
+polling_review_mode = "once"  # Options: "once" or "on_update"
 # Webhook settings
 pr_commands = [
     "/describe --pr_description.final_update_message=false",
@@ -348,7 +350,6 @@ polling_commands = [
     "/review",
     "/improve --pr_code_suggestions.commitable_code_suggestions=true",
 ]
-polling_state_file = ".pr_agent_polling_state.json"
 max_parallel_tasks = 10
 polling_review_timeout_seconds = 1800
 

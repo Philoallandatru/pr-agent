@@ -212,6 +212,11 @@ class PollingState:
             False if PR is already processed/processing (caller should skip it)
         """
         try:
+            from pr_agent.config_loader import get_settings
+
+            # Check review mode configuration
+            review_mode = get_settings().get("bitbucket_server.polling_review_mode", "on_update")
+
             # Ensure parent directory exists
             self.state_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -233,12 +238,22 @@ class PollingState:
                     # Check if already processed
                     pr_state = state.get(repo_key, {}).get(str(pr_id))
                     if pr_state:
-                        # Check version match
-                        if pr_state.get('version') == version:
-                            # Already processed at this version
+                        if review_mode == "once":
+                            # "once" mode: skip if PR was ever processed, regardless of version
                             if pr_state.get('status') in {"processing", "completed", "filtered"}:
+                                get_logger().debug(
+                                    f"Skipping {repo_key}#{pr_id} - already reviewed once "
+                                    f"(mode=once, previous_version={pr_state.get('version')}, "
+                                    f"current_version={version})"
+                                )
                                 return False
-                        # Different version - allow reprocessing
+                        else:
+                            # "on_update" mode: check version match (original behavior)
+                            if pr_state.get('version') == version:
+                                # Already processed at this version
+                                if pr_state.get('status') in {"processing", "completed", "filtered"}:
+                                    return False
+                            # Different version - allow reprocessing
 
                     # Not processed yet - mark as processing
                     if repo_key not in state:
