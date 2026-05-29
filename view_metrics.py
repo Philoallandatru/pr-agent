@@ -3,9 +3,17 @@
 
 直接访问 /metrics 端点并格式化显示
 """
+import sys
 from collections import defaultdict
 
 import requests
+
+# 设置Windows控制台UTF-8编码
+if sys.platform == 'win32':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
 
 
 def fetch_and_display_metrics(url="http://localhost:8080/metrics"):
@@ -35,7 +43,7 @@ def fetch_and_display_metrics(url="http://localhost:8080/metrics"):
         print("=" * 80)
 
         for metric_name, lines in sorted(metrics.items()):
-            print(f"\n📊 {metric_name}")
+            print(f"\n[{metric_name}]")
             print("-" * 80)
             for line in lines[:10]:  # 只显示前10条
                 print(f"  {line}")
@@ -45,13 +53,18 @@ def fetch_and_display_metrics(url="http://localhost:8080/metrics"):
         print("\n" + "=" * 80)
 
     except requests.exceptions.ConnectionError:
-        print("❌ 无法连接到PR-Agent服务")
+        print("错误: 无法连接到PR-Agent服务")
         print(f"   请确认服务运行在 {url}")
     except Exception as e:
-        print(f"❌ 错误: {e}")
+        print(f"错误: {e}")
 
 
 if __name__ == "__main__":
-    import sys
-    url = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8080/metrics"
-    fetch_and_display_metrics(url)
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Prometheus指标查看器')
+    parser.add_argument('--url', default='http://localhost:8080/metrics',
+                        help='Prometheus metrics端点URL')
+    args = parser.parse_args()
+
+    fetch_and_display_metrics(args.url)
