@@ -38,12 +38,17 @@ class PRSimilarIssue:
                 import pandas as pd
                 import pinecone
                 from pinecone_datasets import Dataset, DatasetMetadata
-            except:
-                raise Exception("Please install 'pinecone' and 'pinecone_datasets' to use pinecone as vectordb")
+                # Store as instance variables for use in other methods
+                self.pd = pd
+                self.pinecone = pinecone
+                self.Dataset = Dataset
+                self.DatasetMetadata = DatasetMetadata
+            except Exception as e:
+                raise Exception("Please install 'pinecone' and 'pinecone_datasets' to use pinecone as vectordb") from e
             # assuming pinecone api key and environment are set in secrets file
             try:
-                api_key = get_settings().pinecone.api_key
-                environment = get_settings().pinecone.environment
+                api_key = get_settings().self.pinecone.api_key
+                environment = get_settings().self.pinecone.environment
             except Exception:
                 if not self.cli_mode:
                     repo_name, original_issue_number = self.git_provider._parse_issue_url(self.issue_url.split('=')[-1])
@@ -54,22 +59,22 @@ class PRSimilarIssue:
             # check if index exists, and if repo is already indexed
             run_from_scratch = False
             if run_from_scratch:  # for debugging
-                pinecone.init(api_key=api_key, environment=environment)
-                if index_name in pinecone.list_indexes():
+                self.pinecone.init(api_key=api_key, environment=environment)
+                if index_name in self.pinecone.list_indexes():
                     get_logger().info('Removing index...')
-                    pinecone.delete_index(index_name)
+                    self.pinecone.delete_index(index_name)
                     get_logger().info('Done')
 
             upsert = True
-            pinecone.init(api_key=api_key, environment=environment)
-            if not index_name in pinecone.list_indexes():
+            self.pinecone.init(api_key=api_key, environment=environment)
+            if index_name not in self.pinecone.list_indexes():
                 run_from_scratch = True
                 upsert = False
             else:
                 if get_settings().pr_similar_issue.force_update_dataset:
                     upsert = True
                 else:
-                    pinecone_index = pinecone.Index(index_name=index_name)
+                    pinecone_index = self.pinecone.Index(index_name=index_name)
                     res = pinecone_index.fetch([f"example_issue_{repo_name_for_index}"]).to_dict()
                     if res["vectors"]:
                         upsert = False
@@ -82,7 +87,7 @@ class PRSimilarIssue:
                 get_logger().info('Done')
                 self._update_index_with_issues(issues, repo_name_for_index, upsert=upsert)
             else:  # update index if needed
-                pinecone_index = pinecone.Index(index_name=index_name)
+                pinecone_index = self.pinecone.Index(index_name=index_name)
                 issues_to_update = []
                 issues_paginated_list = repo_obj.get_issues(state='all')
                 counter = 1
@@ -113,7 +118,7 @@ class PRSimilarIssue:
         elif get_settings().pr_similar_issue.vectordb == "lancedb":
             try:
                 import lancedb  # import lancedb only if needed
-            except:
+            except Exception:
                 raise Exception("Please install lancedb to use lancedb as vectordb")
             self.db = lancedb.connect(get_settings().lancedb.uri)
             self.table = None
@@ -178,9 +183,7 @@ class PRSimilarIssue:
         elif get_settings().pr_similar_issue.vectordb == "qdrant":
             try:
                 import qdrant_client
-                from qdrant_client.models import (Distance, FieldCondition,
-                                                  Filter, MatchValue,
-                                                  PointStruct, VectorParams)
+                from qdrant_client.models import Distance, FieldCondition, Filter, MatchValue, PointStruct, VectorParams
             except Exception:
                 raise Exception("Please install qdrant-client to use qdrant as vectordb")
 
@@ -288,7 +291,7 @@ class PRSimilarIssue:
         score_list = []
 
         if get_settings().pr_similar_issue.vectordb == "pinecone":
-            pinecone_index = pinecone.Index(index_name=self.index_name)
+            pinecone_index = self.pinecone.Index(index_name=self.index_name)
             res = pinecone_index.query(embeds[0],
                                     top_k=5,
                                     filter={"repo": self.repo_name_for_index},
@@ -301,7 +304,7 @@ class PRSimilarIssue:
 
                 try:
                     issue_number = int(r["id"].split('.')[0].split('_')[-1])
-                except:
+                except Exception:
                     get_logger().debug(f"Failed to parse issue number from {r['id']}")
                     continue
 
@@ -326,7 +329,7 @@ class PRSimilarIssue:
 
                 try:
                     issue_number = int(r["id"].split('.')[0].split('_')[-1])
-                except:
+                except Exception:
                     get_logger().debug(f"Failed to parse issue number from {r['id']}")
                     continue
 
@@ -453,7 +456,7 @@ class PRSimilarIssue:
                                                   level=IssueLevel.COMMENT)
                             )
                             corpus.append(comment_record)
-        df = pd.DataFrame(corpus.model_dump()["documents"])
+        df = self.pd.DataFrame(corpus.model_dump()["documents"])
         get_logger().info('Done')
 
         get_logger().info('Embedding...')
@@ -462,23 +465,23 @@ class PRSimilarIssue:
         try:
             res = openai.Embedding.create(input=list_to_encode, engine=MODEL)
             embeds = [record['embedding'] for record in res['data']]
-        except:
+        except Exception:
             embeds = []
             get_logger().error('Failed to embed entire list, embedding one by one...')
-            for i, text in enumerate(list_to_encode):
+            for _i, text in enumerate(list_to_encode):
                 try:
                     res = openai.Embedding.create(input=[text], engine=MODEL)
                     embeds.append(res['data'][0]['embedding'])
-                except:
+                except Exception:
                     embeds.append([0] * 1536)
         df["values"] = embeds
-        meta = DatasetMetadata.empty()
+        meta = self.DatasetMetadata.empty()
         meta.dense_model.dimension = len(embeds[0])
-        ds = Dataset.from_pandas(df, meta)
+        ds = self.Dataset.from_pandas(df, meta)
         get_logger().info('Done')
 
-        api_key = get_settings().pinecone.api_key
-        environment = get_settings().pinecone.environment
+        api_key = get_settings().self.pinecone.api_key
+        environment = get_settings().self.pinecone.environment
         if not upsert:
             get_logger().info('Creating index from scratch...')
             ds.to_pinecone_index(self.index_name, api_key=api_key, environment=environment)
@@ -488,7 +491,7 @@ class PRSimilarIssue:
             namespace = ""
             batch_size: int = 100
             concurrency: int = 10
-            pinecone.init(api_key=api_key, environment=environment)
+            self.pinecone.init(api_key=api_key, environment=environment)
             ds._upsert_to_index(self.index_name, namespace, batch_size, concurrency)
             time.sleep(5)  # wait for pinecone to finalize upserting before querying
         get_logger().info('Done')
@@ -549,7 +552,7 @@ class PRSimilarIssue:
                                                     level=IssueLevel.COMMENT)
                             )
                             corpus.append(comment_record)
-        df = pd.DataFrame(corpus.model_dump()["documents"])
+        df = self.pd.DataFrame(corpus.model_dump()["documents"])
         get_logger().info('Done')
 
         get_logger().info('Embedding...')
@@ -558,14 +561,14 @@ class PRSimilarIssue:
         try:
             res = openai.Embedding.create(input=list_to_encode, engine=MODEL)
             embeds = [record['embedding'] for record in res['data']]
-        except:
+        except Exception:
             embeds = []
             get_logger().error('Failed to embed entire list, embedding one by one...')
-            for i, text in enumerate(list_to_encode):
+            for _i, text in enumerate(list_to_encode):
                 try:
                     res = openai.Embedding.create(input=[text], engine=MODEL)
                     embeds.append(res['data'][0]['embedding'])
-                except:
+                except Exception:
                     embeds.append([0] * 1536)
         df["vector"] = embeds
         get_logger().info('Done')
@@ -648,7 +651,7 @@ class PRSimilarIssue:
                             )
                             corpus.append(comment_record)
 
-        df = pd.DataFrame(corpus.model_dump()["documents"])
+        df = self.pd.DataFrame(corpus.model_dump()["documents"])
         get_logger().info('Done')
 
         get_logger().info('Embedding...')
@@ -660,7 +663,7 @@ class PRSimilarIssue:
         except Exception:
             embeds = []
             get_logger().error('Failed to embed entire list, embedding one by one...')
-            for i, text in enumerate(list_to_encode):
+            for _i, text in enumerate(list_to_encode):
                 try:
                     res = openai.Embedding.create(input=[text], engine=MODEL)
                     embeds.append(res['data'][0]['embedding'])
