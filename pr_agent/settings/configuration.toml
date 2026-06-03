@@ -82,6 +82,7 @@ require_estimate_contribution_time_cost=false
 require_todo_scan=false
 require_ticket_analysis_review=true
 # general options
+skip_reviewed_prs=true # Skip PRs that have already been reviewed (based on database records)
 publish_output_no_suggestions=true # Set to "false" if you only need the reviewer's remarks (not labels, not "security audit", etc.) and want to avoid noisy "No major issues detected" comments.
 persistent_comment=true
 extra_instructions = ""
@@ -329,6 +330,10 @@ avoid_full_files = false
 
 [bitbucket_server]
 url = ""
+# Polling state file - use absolute path to ensure consistency
+polling_state_file = "C:/Users/Administrator/Documents/Code/pr-agent/.pr_agent_polling_state.json"
+# Review mode: "once" = review each PR only once (ignore updates), "on_update" = review on every PR update
+polling_review_mode = "once"  # Options: "once" or "on_update"
 # Webhook settings
 pr_commands = [
     "/describe --pr_description.final_update_message=false",
@@ -345,7 +350,6 @@ polling_commands = [
     "/review",
     "/improve --pr_code_suggestions.commitable_code_suggestions=true",
 ]
-polling_state_file = ".pr_agent_polling_state.json"
 max_parallel_tasks = 10
 polling_review_timeout_seconds = 1800
 
@@ -476,3 +480,39 @@ key_prefix = "pr-agent"
 # Cache size limits (for memory backend)
 max_memory_items = 1000
 max_memory_size_mb = 100
+
+[efficiency_metrics]
+enabled = true
+database_path = "pr_agent.db"
+prometheus_enabled = true
+
+# 估算算法参数
+[efficiency_metrics.estimation]
+base_review_time_minutes = 10
+time_per_file_minutes = 2
+time_per_100_lines_minutes = 5
+max_review_time_minutes = 240
+
+# 复杂度评分权重
+[efficiency_metrics.complexity]
+file_count_weight = 0.3
+line_count_weight = 0.3
+language_diversity_weight = 0.2
+dispersion_weight = 0.2
+
+# API定价（美元/1K tokens）
+[efficiency_metrics.pricing.gpt-4]
+prompt = 0.03
+completion = 0.06
+
+[efficiency_metrics.pricing.gpt-4-turbo]
+prompt = 0.01
+completion = 0.03
+
+[efficiency_metrics.pricing.claude-opus]
+prompt = 0.015
+completion = 0.075
+
+[efficiency_metrics.pricing.claude-sonnet]
+prompt = 0.003
+completion = 0.015

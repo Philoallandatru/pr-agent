@@ -4,14 +4,14 @@ Monitoring and observability utilities for PR Agent.
 Provides Prometheus metrics, structured logging, and performance tracking.
 """
 
-import time
 import logging
-from typing import Dict, Any, Optional
-from functools import wraps
+import time
 from datetime import datetime
+from functools import wraps
+from typing import Any, Dict, Optional
 
 try:
-    from prometheus_client import Counter, Histogram, Gauge, Info
+    from prometheus_client import Counter, Gauge, Histogram, Info
     PROMETHEUS_AVAILABLE = True
 except ImportError:
     PROMETHEUS_AVAILABLE = False
@@ -76,6 +76,73 @@ if PROMETHEUS_AVAILABLE:
     app_info = Info(
         'pr_agent_app',
         'Application information'
+    )
+
+    # AI效率指标 - Counters
+    ai_issues_found_total = Counter(
+        'pr_agent_ai_issues_found_total',
+        'Total issues found by AI review',
+        ['repository', 'severity']
+    )
+
+    ai_code_suggestions_total = Counter(
+        'pr_agent_ai_code_suggestions_total',
+        'Total code suggestions made',
+        ['repository']
+    )
+
+    ai_api_calls_total = Counter(
+        'pr_agent_ai_api_calls_total',
+        'Total AI API calls',
+        ['model', 'repository']
+    )
+
+    ai_tokens_used_total = Counter(
+        'pr_agent_ai_tokens_used_total',
+        'Total tokens used',
+        ['model', 'token_type']
+    )
+
+    ai_cost_usd_total = Counter(
+        'pr_agent_ai_cost_usd_total',
+        'Total AI API cost in USD',
+        ['model', 'repository']
+    )
+
+    # AI效率指标 - Histograms
+    ai_review_processing_time_seconds = Histogram(
+        'pr_agent_ai_review_processing_time_seconds',
+        'AI review processing time distribution',
+        ['repository', 'review_type'],
+        buckets=[1, 5, 10, 30, 60, 120, 300, 600]
+    )
+
+    ai_pr_size_lines = Histogram(
+        'pr_agent_ai_pr_size_lines',
+        'PR size in lines distribution',
+        ['repository'],
+        buckets=[10, 50, 100, 200, 500, 1000, 2000, 5000]
+    )
+
+    ai_pr_complexity_score = Histogram(
+        'pr_agent_ai_pr_complexity_score',
+        'PR complexity score distribution',
+        ['repository'],
+        buckets=[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+    )
+
+    ai_time_saved_minutes = Histogram(
+        'pr_agent_ai_time_saved_minutes',
+        'Estimated human time saved distribution',
+        ['repository'],
+        buckets=[5, 10, 15, 30, 60, 120, 240]
+    )
+
+    # AI效率指标 - Gauges
+    ai_agentic_iterations = Gauge(
+        'pr_agent_ai_agentic_iterations',
+        'Number of agentic search iterations',
+        ['repository']
     )
 
 

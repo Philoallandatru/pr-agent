@@ -27,7 +27,9 @@ from pr_agent.config_loader import get_settings
 from pr_agent.git_providers import get_git_provider_with_context
 from pr_agent.git_providers.git_provider import IncrementalPR, get_main_pr_language
 from pr_agent.log import get_logger
+from pr_agent.monitoring.efficiency_tracker import EfficiencyTracker
 from pr_agent.servers.help import HelpMessage
+from pr_agent.storage.database import Database
 from pr_agent.tools.ticket_pr_compliance_check import extract_and_cache_pr_tickets
 
 
@@ -124,6 +126,33 @@ class PRReviewer:
         return incremental
 
     async def run(self) -> None:
+        # 检查是否已经review过此PR
+        if get_settings().get('pr_reviewer.skip_reviewed_prs', True):
+            try:
+                db = Database()
+                if db.is_pr_reviewed(self.pr_url):
+                    get_logger().info(f"PR已经被review过，跳过: {self.pr_url}")
+                    db.close()
+                    return None
+                db.close()
+            except Exception as e:
+                get_logger().warning(f"检查PR review状态失败: {e}")
+
+        # 初始化效率追踪器（如果启用）
+        efficiency_tracker = None
+        if get_settings().get('efficiency_metrics.enabled', True):
+            try:
+                # 使用临时ID，实际应用中应从数据库获取pr_review_id
+                efficiency_tracker = EfficiencyTracker(pr_review_id=0, git_provider=self.git_provider)
+                efficiency_tracker.__enter__()
+                # 设置review类型和模型
+                if is_agentic_review_enabled():
+                    efficiency_tracker.set_review_type('agentic')
+                efficiency_tracker.set_model(get_settings().config.model)
+            except Exception as e:
+                get_logger().warning(f"Failed to initialize EfficiencyTracker: {e}")
+                efficiency_tracker = None
+
         try:
             if not self.git_provider.get_files():
                 get_logger().info(f"PR has no files: {self.pr_url}, skipping review")
@@ -190,9 +219,40 @@ class PRReviewer:
                 self.git_provider.publish_comment(pr_review)
 
             self.git_provider.remove_initial_comment()
+
+            # 记录PR review完成状态到数据库
+            try:
+                db = Database()
+                # 检查是否已存在记录
+                existing = db.get_pr_review_by_url(self.pr_url)
+                if existing:
+                    # 更新现有记录
+                    db.update_pr_review(existing['id'], status='completed')
+                else:
+                    # 创建新记录
+                    db.add_pr_review(
+                        repository_id=0,  # 临时使用0，实际应该从配置获取
+                        pr_id=0,  # 临时使用0，实际应该从PR URL解析
+                        pr_title=getattr(self.git_provider, 'pr_title', 'Unknown'),
+                        pr_author=getattr(self.git_provider, 'pr_author', 'Unknown'),
+                        pr_url=self.pr_url,
+                        commands_run=['review'],
+                        status='completed'
+                    )
+                db.close()
+                get_logger().info(f"PR review状态已记录: {self.pr_url}")
+            except Exception as e:
+                get_logger().warning(f"记录PR review状态失败: {e}")
         except Exception as e:
             get_logger().error(f"Failed to review PR: {e}", artifact={"traceback": traceback.format_exc()})
             raise
+        finally:
+            # 完成效率追踪
+            if efficiency_tracker:
+                try:
+                    efficiency_tracker.__exit__(None, None, None)
+                except Exception as e:
+                    get_logger().warning(f"Failed to finalize EfficiencyTracker: {e}")
 
     def _should_publish_review_no_suggestions(self, pr_review: str) -> bool:
         return (
