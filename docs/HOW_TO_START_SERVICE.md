@@ -377,10 +377,10 @@ nssm status PRAgent
 
 ```bash
 # 测试webhook服务器
-python test_webhook.py --url http://localhost:3000
+python scripts/diagnostics/check_webhook.py --url http://localhost:3000
 
 # 测试监控功能
-python test_monitoring.py
+python scripts/diagnostics/check_monitoring.py
 ```
 
 ---
@@ -470,10 +470,10 @@ prometheus_enabled = true
 
 ```bash
 # SQLite仪表板
-python monitor_efficiency.py
+python -m pr_agent.monitoring.efficiency_monitor
 
 # Web界面
-python web_monitor.py
+python -m pr_agent.monitoring.web_dashboard
 ```
 
 ### 日志轮转

@@ -6,9 +6,9 @@
 
 PR-Agent提供三种监控方案：
 
-1. **SQLite数据库仪表板** (`monitor_efficiency.py`) - 推荐方案
-2. **Prometheus指标查看器** (`view_metrics.py`) - 轻量级方案
-3. **Web监控界面** (`web_monitor.py`) - 可视化方案
+1. **SQLite数据库仪表板** (`pr_agent/monitoring/efficiency_monitor.py`) - 推荐方案
+2. **Prometheus指标查看器** (`pr_agent/monitoring/metrics_viewer.py`) - 轻量级方案
+3. **Web监控界面** (`pr_agent/monitoring/web_dashboard.py`) - 可视化方案
 
 ## 前置条件
 
@@ -49,13 +49,13 @@ pip install requests
 
 ```bash
 # 显示完整仪表板
-python monitor_efficiency.py
+python -m pr_agent.monitoring.efficiency_monitor
 
 # 导出数据到CSV
-python monitor_efficiency.py --export metrics_export.csv
+python -m pr_agent.monitoring.efficiency_monitor --export metrics_export.csv
 
 # 指定数据库路径
-python monitor_efficiency.py --db-path /path/to/pr_agent.db
+python -m pr_agent.monitoring.efficiency_monitor --db-path /path/to/pr_agent.db
 ```
 
 ### 输出示例
@@ -103,7 +103,7 @@ python monitor_efficiency.py --db-path /path/to/pr_agent.db
 ### 高级用法
 
 ```python
-from monitor_efficiency import EfficiencyMonitor
+from pr_agent.monitoring.efficiency_monitor import EfficiencyMonitor
 
 # 创建监控实例
 monitor = EfficiencyMonitor(db_path='pr_agent.db')
@@ -137,13 +137,13 @@ monitor.export_csv('metrics.csv', days=30)
 
 ```bash
 # 查看所有指标
-python view_metrics.py
+python -m pr_agent.monitoring.metrics_viewer
 
 # 指定Prometheus端点
-python view_metrics.py --url http://localhost:8080/metrics
+python -m pr_agent.monitoring.metrics_viewer --url http://localhost:8080/metrics
 
 # 只显示特定指标
-python view_metrics.py --filter ai_review
+python -m pr_agent.monitoring.metrics_viewer --filter ai_review
 ```
 
 ### 输出示例
@@ -202,16 +202,16 @@ scrape_configs:
 
 ```bash
 # 启动Web服务（默认端口5000）
-python web_monitor.py
+python -m pr_agent.monitoring.web_dashboard
 
 # 指定端口
-python web_monitor.py --port 8080
+python -m pr_agent.monitoring.web_dashboard --port 8080
 
 # 指定数据库路径
-python web_monitor.py --db-path /path/to/pr_agent.db
+python -m pr_agent.monitoring.web_dashboard --db-path /path/to/pr_agent.db
 
 # 后台运行
-nohup python web_monitor.py > web_monitor.log 2>&1 &
+nohup python -m pr_agent.monitoring.web_dashboard > web_monitor.log 2>&1 &
 ```
 
 ### 访问界面
@@ -235,11 +235,11 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install -r requirements.txt flask
 
-COPY web_monitor.py .
+COPY pr_agent ./pr_agent
 COPY pr_agent.db .
 
 EXPOSE 5000
-CMD ["python", "web_monitor.py", "--host", "0.0.0.0"]
+CMD ["python", "-m", "pr_agent.monitoring.web_dashboard", "--host", "0.0.0.0"]
 ```
 
 ```bash
@@ -377,7 +377,7 @@ A: 在CI流程中添加监控报告：
 # .github/workflows/pr-agent.yml
 - name: Generate Efficiency Report
   run: |
-    python monitor_efficiency.py > efficiency_report.txt
+    python -m pr_agent.monitoring.efficiency_monitor > efficiency_report.txt
     cat efficiency_report.txt >> $GITHUB_STEP_SUMMARY
 
 - name: Upload Report
@@ -393,7 +393,7 @@ A: 使用CSV导出功能：
 
 ```bash
 # 导出最近30天的数据
-python monitor_efficiency.py --export metrics.csv --days 30
+python -m pr_agent.monitoring.efficiency_monitor --export metrics.csv --days 30
 
 # 导入到其他系统（例如Excel、Tableau、Power BI）
 ```
@@ -441,7 +441,7 @@ print(f"Deleted metrics older than {cutoff_date}")
 
 ```python
 # check_metrics.py
-from monitor_efficiency import EfficiencyMonitor
+from pr_agent.monitoring.efficiency_monitor import EfficiencyMonitor
 
 monitor = EfficiencyMonitor()
 summary = monitor.get_summary(days=1)

@@ -7,6 +7,10 @@
 import sys
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 # 设置Windows控制台UTF-8编码
 if sys.platform == 'win32':
     try:
@@ -84,7 +88,7 @@ def test_monitor_efficiency():
     print("-" * 80)
 
     try:
-        from monitor_efficiency import EfficiencyMonitor
+        from pr_agent.monitoring.efficiency_monitor import EfficiencyMonitor
 
         monitor = EfficiencyMonitor("pr_agent.db")
 
@@ -92,7 +96,7 @@ def test_monitor_efficiency():
         summary = monitor.get_summary(days=7)
         print(f"✓ 获取摘要成功")
         print(f"  总Review数: {summary['total_reviews']}")
-        print(f"  总成本: ${summary['total_cost']:.2f}")
+        print(f"  总成本: ${summary['total_cost'] or 0:.2f}")
 
         # 测试ROI分析
         roi = monitor.get_roi_analysis()
@@ -116,7 +120,7 @@ def test_csv_export():
     print("-" * 80)
 
     try:
-        from monitor_efficiency import EfficiencyMonitor
+        from pr_agent.monitoring.efficiency_monitor import EfficiencyMonitor
 
         monitor = EfficiencyMonitor("pr_agent.db")
         test_file = "test_export.csv"
@@ -152,13 +156,13 @@ def test_view_metrics():
 
     try:
         # 只检查模块是否可以导入
-        import view_metrics
-        print("✓ view_metrics模块导入成功")
+        import pr_agent.monitoring.metrics_viewer
+        print("✓ pr_agent.monitoring.metrics_viewer模块导入成功")
         print("  注意: 需要PR-Agent服务运行才能查看实时指标")
         return True
 
     except Exception as e:
-        print(f"✗ view_metrics导入失败: {e}")
+        print(f"✗ pr_agent.monitoring.metrics_viewer导入失败: {e}")
         return False
 
 
@@ -173,10 +177,10 @@ def test_web_monitor():
         import flask
         print("✓ Flask已安装")
 
-        # 检查web_monitor模块
-        import web_monitor
-        print("✓ web_monitor模块导入成功")
-        print("  使用 'python web_monitor.py' 启动Web服务")
+        # 检查web_dashboard模块
+        import pr_agent.monitoring.web_dashboard
+        print("✓ pr_agent.monitoring.web_dashboard模块导入成功")
+        print("  使用 'python -m pr_agent.monitoring.web_dashboard' 启动Web服务")
         return True
 
     except ImportError as e:
@@ -184,7 +188,7 @@ def test_web_monitor():
         print("  运行: pip install flask")
         return False
     except Exception as e:
-        print(f"✗ web_monitor检查失败: {e}")
+        print(f"✗ web_dashboard检查失败: {e}")
         return False
 
 
@@ -224,9 +228,9 @@ def main():
     if passed == total:
         print("\n✓ 所有测试通过！监控工具已就绪。")
         print("\n快速开始:")
-        print("  python monitor_efficiency.py              # 查看监控面板")
-        print("  python monitor_efficiency.py --export metrics.csv  # 导出数据")
-        print("  python web_monitor.py                     # 启动Web界面")
+        print("  python -m pr_agent.monitoring.efficiency_monitor              # 查看监控面板")
+        print("  python -m pr_agent.monitoring.efficiency_monitor --export metrics.csv  # 导出数据")
+        print("  python -m pr_agent.monitoring.web_dashboard                   # 启动Web界面")
         return 0
     else:
         print(f"\n✗ {total - passed} 个测试失败")

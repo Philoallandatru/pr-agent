@@ -31,13 +31,13 @@ python -m pr_agent.cli --pr_url https://github.com/owner/repo/pull/123 review
 
 ```bash
 # 显示监控面板
-python monitor_efficiency.py
+python -m pr_agent.monitoring.efficiency_monitor
 
 # 导出CSV（最近30天）
-python monitor_efficiency.py --export metrics.csv --days 30
+python -m pr_agent.monitoring.efficiency_monitor --export metrics.csv --days 30
 
 # 指定数据库路径
-python monitor_efficiency.py --db-path /path/to/pr_agent.db
+python -m pr_agent.monitoring.efficiency_monitor --db-path /path/to/pr_agent.db
 ```
 
 **输出示例**：
@@ -76,10 +76,10 @@ PR-Agent AI效率监控面板
 
 ```bash
 # 查看指标（默认端口8080）
-python view_metrics.py
+python -m pr_agent.monitoring.metrics_viewer
 
 # 指定URL
-python view_metrics.py --url http://localhost:8080/metrics
+python -m pr_agent.monitoring.metrics_viewer --url http://localhost:8080/metrics
 ```
 
 **注意**：此工具需要PR-Agent服务（如GitHub App或webhook服务器）正在运行并暴露 `/metrics` 端点。
@@ -92,10 +92,10 @@ python view_metrics.py --url http://localhost:8080/metrics
 
 ```bash
 # 启动Web服务（默认端口5000）
-python web_monitor.py
+python -m pr_agent.monitoring.web_dashboard
 
 # 指定端口和数据库
-python web_monitor.py --port 8080 --db-path pr_agent.db
+python -m pr_agent.monitoring.web_dashboard --port 8080 --db-path pr_agent.db
 ```
 
 然后在浏览器中访问：`http://localhost:5000`
@@ -106,14 +106,14 @@ python web_monitor.py --port 8080 --db-path pr_agent.db
 
 ```bash
 # 添加到每日工作流
-python monitor_efficiency.py
+python -m pr_agent.monitoring.efficiency_monitor
 ```
 
 ### 场景2：生成周报
 
 ```bash
 # 导出最近7天的数据
-python monitor_efficiency.py --export weekly_report.csv --days 7
+python -m pr_agent.monitoring.efficiency_monitor --export weekly_report.csv --days 7
 
 # 在Excel或其他工具中打开 weekly_report.csv
 ```
@@ -122,7 +122,7 @@ python monitor_efficiency.py --export weekly_report.csv --days 7
 
 ```bash
 # 导出所有历史数据
-python monitor_efficiency.py --export all_metrics.csv
+python -m pr_agent.monitoring.efficiency_monitor --export all_metrics.csv
 
 # 使用数据分析工具（Excel、Tableau、Power BI等）进行深度分析
 ```
@@ -131,7 +131,7 @@ python monitor_efficiency.py --export all_metrics.csv
 
 ```bash
 # 启动Web服务并允许外部访问
-python web_monitor.py --host 0.0.0.0 --port 5000
+python -m pr_agent.monitoring.web_dashboard --host 0.0.0.0 --port 5000
 
 # 团队成员可以通过 http://your-server-ip:5000 访问
 ```
@@ -143,7 +143,7 @@ python web_monitor.py --host 0.0.0.0 --port 5000
 ```yaml
 - name: Generate Efficiency Report
   run: |
-    python monitor_efficiency.py > efficiency_report.txt
+    python -m pr_agent.monitoring.efficiency_monitor > efficiency_report.txt
     cat efficiency_report.txt >> $GITHUB_STEP_SUMMARY
 ```
 
@@ -212,7 +212,7 @@ cp pr_agent.db pr_agent_backup_$(date +%Y%m%d).db
 
 ```powershell
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-python monitor_efficiency.py
+python -m pr_agent.monitoring.efficiency_monitor
 ```
 
 ## 数据字段说明

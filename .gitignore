@@ -13,3 +13,8 @@ build/
 docs/.cache/
 .qodo
 poetry.lock
+pr_agent.db
+.pr_agent_polling_state.json
+.pr_agent_state_*.tmp
+test_export.csv
+metrics*.csv

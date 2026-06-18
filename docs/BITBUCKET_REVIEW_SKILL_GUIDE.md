@@ -300,7 +300,7 @@ curl http://localhost:3000/health
 ### 查看效率指标
 
 ```bash
-python monitor_efficiency.py
+python -m pr_agent.monitoring.efficiency_monitor
 ```
 
 ---

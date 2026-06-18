@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from flask import Flask, render_template_string
 
 app = Flask(__name__)
+app.config["DATABASE_PATH"] = "pr_agent.db"
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -210,7 +211,7 @@ HTML_TEMPLATE = """
 
 def get_db():
     """获取数据库连接"""
-    conn = sqlite3.connect('pr_agent.db')
+    conn = sqlite3.connect(app.config["DATABASE_PATH"])
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -300,7 +301,21 @@ def dashboard():
     )
 
 
-if __name__ == '__main__':
-    print("🚀 启动监控面板...")
-    print("📊 访问: http://localhost:5000")
-    app.run(host='0.0.0.0', port=5000, debug=False)
+def main():
+    """启动监控面板"""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="PR-Agent Web监控面板")
+    parser.add_argument("--db-path", default="pr_agent.db", help="SQLite数据库文件路径")
+    parser.add_argument("--host", default="0.0.0.0", help="监听地址")
+    parser.add_argument("--port", type=int, default=5000, help="监听端口")
+    args = parser.parse_args()
+
+    app.config["DATABASE_PATH"] = args.db_path
+    print("启动监控面板...")
+    print(f"访问: http://localhost:{args.port}")
+    app.run(host=args.host, port=args.port, debug=False)
+
+
+if __name__ == "__main__":
+    main()

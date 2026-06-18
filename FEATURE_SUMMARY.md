@@ -27,7 +27,7 @@
 
 **方案1: SQLite数据库仪表板** (推荐)
 ```bash
-python monitor_efficiency.py
+python -m pr_agent.monitoring.efficiency_monitor
 ```
 - ✅ 7天汇总统计
 - ✅ ROI分析
@@ -38,7 +38,7 @@ python monitor_efficiency.py
 
 **方案2: Prometheus指标查看器**
 ```bash
-python view_metrics.py
+python -m pr_agent.monitoring.metrics_viewer
 ```
 - ✅ 实时指标
 - ✅ 轻量级
@@ -46,7 +46,7 @@ python view_metrics.py
 
 **方案3: Flask Web界面**
 ```bash
-python web_monitor.py
+python -m pr_agent.monitoring.web_dashboard
 ```
 - ✅ 可视化仪表板
 - ✅ 实时刷新
@@ -67,7 +67,7 @@ prometheus_enabled = true
 ### 文档
 - 📄 [MONITORING_GUIDE.md](docs/MONITORING_GUIDE.md) - 详细使用指南
 - 📄 [MONITORING_QUICKSTART.md](MONITORING_QUICKSTART.md) - 5分钟快速入门
-- 🧪 `test_monitoring.py` - 自动化测试套件
+- 🧪 `scripts/diagnostics/check_monitoring.py` - 自动化测试套件
 
 ---
 
@@ -161,7 +161,7 @@ docker-compose up -d
 ### 验证工具
 
 ```bash
-python test_webhook.py
+python scripts/diagnostics/check_webhook.py
 ```
 
 自动测试：
@@ -174,7 +174,7 @@ python test_webhook.py
 ### 文档
 - 📄 [BITBUCKET_SERVER_WEBHOOK.md](docs/BITBUCKET_SERVER_WEBHOOK.md) - 完整配置指南
 - 📄 [BITBUCKET_SERVER_QUICKSTART.md](docs/BITBUCKET_SERVER_QUICKSTART.md) - 快速入门
-- 🧪 `test_webhook.py` - Webhook测试工具
+- 🧪 `scripts/diagnostics/check_webhook.py` - Webhook测试工具
 
 ---
 
@@ -189,17 +189,17 @@ python test_webhook.py
 - `pr_agent/servers/bitbucket_server_webhook.py` - Webhook服务器
 
 ### 监控工具
-- `monitor_efficiency.py` - SQLite监控仪表板（推荐）
-- `view_metrics.py` - Prometheus查看器
-- `web_monitor.py` - Flask Web界面
+- `pr_agent/monitoring/efficiency_monitor.py` - SQLite监控仪表板（推荐）
+- `pr_agent/monitoring/metrics_viewer.py` - Prometheus查看器
+- `pr_agent/monitoring/web_dashboard.py` - Flask Web界面
 
 ### 启动脚本
 - `start_webhook.sh` - Linux/macOS启动脚本
 - `start_webhook.bat` - Windows启动脚本
 
 ### 测试工具
-- `test_monitoring.py` - 监控工具测试套件
-- `test_webhook.py` - Webhook服务器测试工具
+- `scripts/diagnostics/check_monitoring.py` - 监控工具测试套件
+- `scripts/diagnostics/check_webhook.py` - Webhook服务器测试工具
 - `tests/unittest/test_efficiency_database.py` - 数据库测试（4个测试）
 - `tests/unittest/test_estimation.py` - 估算算法测试（10个测试）
 - `tests/unittest/test_efficiency_tracker.py` - 追踪器测试（7个测试）
@@ -253,13 +253,13 @@ start_webhook.bat
 
 ```bash
 # SQLite仪表板
-python monitor_efficiency.py
+python -m pr_agent.monitoring.efficiency_monitor
 
 # 导出CSV
-python monitor_efficiency.py --export report.csv --days 30
+python -m pr_agent.monitoring.efficiency_monitor --export report.csv --days 30
 
 # Web界面
-python web_monitor.py
+python -m pr_agent.monitoring.web_dashboard
 ```
 
 ---
@@ -275,12 +275,12 @@ PYTHONPATH=. pytest tests/unittest/test_efficiency_database.py \
 
 ### 测试监控工具
 ```bash
-python test_monitoring.py
+python scripts/diagnostics/check_monitoring.py
 ```
 
 ### 测试Webhook服务器
 ```bash
-python test_webhook.py --url http://localhost:3000
+python scripts/diagnostics/check_webhook.py --url http://localhost:3000
 ```
 
 ---

@@ -330,8 +330,8 @@ avoid_full_files = false
 
 [bitbucket_server]
 url = ""
-# Polling state file - use absolute path to ensure consistency
-polling_state_file = "C:/Users/Administrator/Documents/Code/pr-agent/.pr_agent_polling_state.json"
+# Polling state file
+polling_state_file = ".pr_agent_polling_state.json"
 # Review mode: "once" = review each PR only once (ignore updates), "on_update" = review on every PR update
 polling_review_mode = "once"  # Options: "once" or "on_update"
 # Webhook settings

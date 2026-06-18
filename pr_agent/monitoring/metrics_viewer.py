@@ -16,7 +16,7 @@ if sys.platform == 'win32':
         pass
 
 
-def fetch_and_display_metrics(url="http://localhost:8080/metrics"):
+def fetch_and_display_metrics(url="http://localhost:8080/metrics", name_filter=None):
     """获取并显示Prometheus指标"""
     try:
         response = requests.get(url)
@@ -31,7 +31,7 @@ def fetch_and_display_metrics(url="http://localhost:8080/metrics"):
                 continue
 
             # 提取AI效率指标
-            if 'pr_agent_ai_' in line:
+            if 'pr_agent_ai_' in line and (not name_filter or name_filter in line):
                 parts = line.split()
                 if len(parts) >= 2:
                     metric_name = parts[0].split('{')[0]
@@ -65,6 +65,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Prometheus指标查看器')
     parser.add_argument('--url', default='http://localhost:8080/metrics',
                         help='Prometheus metrics端点URL')
+    parser.add_argument('--filter', default=None, help='仅显示包含该文本的指标')
     args = parser.parse_args()
 
-    fetch_and_display_metrics(args.url)
+    fetch_and_display_metrics(args.url, args.filter)

@@ -2,9 +2,15 @@
 诊断PollingState问题的脚本
 """
 import json
+import sys
 from pathlib import Path
-from pr_agent.storage.polling_state import PollingState
-from pr_agent.config_loader import get_settings
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from pr_agent.config_loader import get_settings  # noqa: E402
+from pr_agent.storage.polling_state import PollingState  # noqa: E402
 
 def diagnose_polling_state():
     print("=== PollingState 诊断 ===\n")
