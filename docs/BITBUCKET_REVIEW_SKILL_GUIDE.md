@@ -452,7 +452,7 @@ curl http://localhost:3000/health
 - [Bitbucket Server Webhook指南](BITBUCKET_SERVER_WEBHOOK.md)
 - [服务启动指南](HOW_TO_START_SERVICE.md)
 - [监控指南](MONITORING_GUIDE.md)
-- [Agent skill folder](../.agents/skills/bitbucket-review/SKILL.md)
+- [Agent skill folder](../bitbucket-review/SKILL.md)
 - [Claude Code skill definition](../.claude/skills/bitbucket-review.md)
 - [实现计划](.claude/plans/bitbucket-review-skill-plan.md)
 
