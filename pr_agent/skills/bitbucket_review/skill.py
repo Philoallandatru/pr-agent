@@ -3,6 +3,7 @@ Bitbucket Review Skill
 整合webhook服务器、Bitbucket访问和PR审查功能
 """
 import asyncio
+import json
 from typing import Any, Dict, List, Optional
 
 import uvicorn
@@ -86,22 +87,29 @@ class BitbucketReviewSkill:
             )
             return {"status": "success", "pr_url": pr_url, "results": results}
 
-    async def handle_webhook(self, payload: Dict[str, Any], signature: str = "") -> Dict[str, Any]:
+    async def handle_webhook(
+        self,
+        payload: Dict[str, Any],
+        signature: str = "",
+        raw_body: Optional[bytes] = None,
+    ) -> Dict[str, Any]:
         """
         处理webhook事件
 
         Args:
             payload: Webhook payload
             signature: 请求签名
+            raw_body: Bitbucket签名使用的原始请求体
 
         Returns:
             Dict: 处理结果
         """
         # 验证签名
         if self.config.webhook_secret:
-            import json
-            payload_str = json.dumps(payload, separators=(',', ':'))
-            if not self.webhook_handler.verify_signature(payload_str, signature):
+            body_to_verify = raw_body if raw_body is not None else json.dumps(
+                payload, separators=(",", ":")
+            )
+            if not self.webhook_handler.verify_signature(body_to_verify, signature):
                 get_logger().warning("Webhook signature verification failed")
                 return {"status": "error", "message": "Invalid signature"}
 
@@ -213,11 +221,12 @@ class BitbucketReviewSkill:
 
         @self.app.post("/webhook")
         async def webhook_endpoint(request: Request, background_tasks: BackgroundTasks):
-            payload = await request.json()
+            raw_body = await request.body()
+            payload = json.loads(raw_body)
             signature = request.headers.get("X-Hub-Signature", "")
 
             # 在后台处理webhook
-            result = await self.handle_webhook(payload, signature)
+            result = await self.handle_webhook(payload, signature, raw_body=raw_body)
 
             return JSONResponse(content=result)
 
@@ -249,7 +258,8 @@ class BitbucketReviewSkill:
             try:
                 await self._server_task
             except asyncio.CancelledError:
-                pass
+                # Expected when stop_webhook_server cancels the background server task.
+                get_logger().debug("Webhook server task cancellation acknowledged")
             self._server_task = None
             get_logger().info("Webhook server stopped")
 

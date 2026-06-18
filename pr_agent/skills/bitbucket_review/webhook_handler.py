@@ -5,7 +5,7 @@ Webhook事件处理器
 import hashlib
 import hmac
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from pr_agent.config_loader import get_settings
 from pr_agent.log import get_logger
@@ -25,12 +25,12 @@ class WebhookHandler:
         """
         self.secret = secret
 
-    def verify_signature(self, payload: str, signature: str) -> bool:
+    def verify_signature(self, payload: Union[bytes, str], signature: str) -> bool:
         """
         验证webhook签名
 
         Args:
-            payload: 原始payload字符串
+            payload: 原始payload字节或字符串
             signature: 请求头中的签名
 
         Returns:
@@ -41,9 +41,11 @@ class WebhookHandler:
             return True
 
         try:
+            payload_bytes = payload if isinstance(payload, bytes) else payload.encode()
             expected_signature = hmac.new(
-                self.secret.encode(), payload.encode(), hashlib.sha256
+                self.secret.encode(), payload_bytes, hashlib.sha256
             ).hexdigest()
+            expected_signature = f"sha256={expected_signature}"
             return hmac.compare_digest(signature, expected_signature)
         except Exception as e:
             get_logger().error(f"Signature verification failed: {e}")
@@ -60,12 +62,14 @@ class WebhookHandler:
             Tuple[str, str, Dict]: (event_type, pr_url, pr_data)
         """
         event_key = payload.get("eventKey", "")
-        pr_data = payload.get("pullRequest", {})
+        pr_data = dict(payload.get("pullRequest", {}))
+        if "comment" in payload:
+            pr_data["comment"] = payload["comment"]
 
         # 提取PR信息
         pr_id = pr_data.get("id")
-        from_ref = pr_data.get("fromRef", {})
-        repository = from_ref.get("repository", {})
+        target_ref = pr_data.get("toRef") or pr_data.get("fromRef", {})
+        repository = target_ref.get("repository", {})
         project = repository.get("project", {})
 
         # 构建PR URL

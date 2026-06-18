@@ -2,7 +2,6 @@
 Review执行器
 运行PR审查并处理结果
 """
-import asyncio
 from typing import Any, Dict, List, Optional
 
 from pr_agent.agent.pr_agent import PRAgent
@@ -24,6 +23,12 @@ class ReviewRunner:
             bitbucket_client: Bitbucket客户端实例
         """
         self.client = bitbucket_client
+
+    async def _run_pr_agent_command(
+        self, pr_url: str, command: str, args: Optional[List[str]] = None
+    ) -> bool:
+        agent = PRAgent()
+        return await agent.handle_request(pr_url, [command] + (args or []))
 
     async def run_review(
         self, pr_url: str, extra_args: Optional[List[str]] = None
@@ -50,8 +55,7 @@ class ReviewRunner:
 
             try:
                 # 创建并运行PRAgent
-                agent = PRAgent()
-                await asyncio.to_thread(agent.handle_request, pr_url, "review", args)
+                await self._run_pr_agent_command(pr_url, "review", args)
 
                 get_logger().info(f"Review completed for PR: {pr_url}")
                 return {
@@ -91,8 +95,7 @@ class ReviewRunner:
             get_settings().set("CONFIG.GIT_PROVIDER", "bitbucket_server")
 
             try:
-                agent = PRAgent()
-                await asyncio.to_thread(agent.handle_request, pr_url, "describe")
+                await self._run_pr_agent_command(pr_url, "describe")
 
                 get_logger().info(f"Describe completed for PR: {pr_url}")
                 return {
@@ -130,8 +133,7 @@ class ReviewRunner:
             get_settings().set("CONFIG.GIT_PROVIDER", "bitbucket_server")
 
             try:
-                agent = PRAgent()
-                await asyncio.to_thread(agent.handle_request, pr_url, "improve")
+                await self._run_pr_agent_command(pr_url, "improve")
 
                 get_logger().info(f"Improve completed for PR: {pr_url}")
                 return {
@@ -181,10 +183,7 @@ class ReviewRunner:
                 get_settings().set("CONFIG.GIT_PROVIDER", "bitbucket_server")
 
                 try:
-                    agent = PRAgent()
-                    await asyncio.to_thread(
-                        agent.handle_request, pr_url, command, args or []
-                    )
+                    await self._run_pr_agent_command(pr_url, command, args)
 
                     get_logger().info(
                         f"Command '{command}' completed for PR: {pr_url}"
